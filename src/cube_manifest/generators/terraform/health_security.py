@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from manifest.schema.models import HealthCheck, Probe, SecurityContext
+from cube_manifest.schema.models import HealthCheck, Probe, SecurityContext
 
 
 def build_probe(probe: Probe) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from manifest.schema.models import AppConfig
+from cube_manifest.schema.models import AppConfig
 
 from ._common import namespace_ref
 
@@ -111,7 +111,7 @@ def build_pvcs(app: AppConfig, app_name: str) -> dict[str, Any]:
             "metadata": {
                 "name": pvc_resource_name,
                 "namespace": namespace_ref(app.namespace),
-                "labels": {"app": app_name, "storage": s.name, "managed-by": "manifest"},
+                "labels": {"app": app_name, "storage": s.name, "managed-by": "cube_manifest"},
             },
             "spec": {
                 "access_modes": [s.access_mode],

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import shlex
 
-from manifest.schema.models import AppConfig, CacheOptimization, DockerHealthCheck, UserConfig
+from cube_manifest.schema.models import AppConfig, CacheOptimization, DockerHealthCheck, UserConfig
 
 DOCKERFILE_SYNTAX_HEADER = "# syntax=docker/dockerfile:1"
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from manifest.schema.models import AppConfig
+from cube_manifest.schema.models import AppConfig
 
 from .languages import LANGUAGE_BUILDERS, build_generic, build_python
 

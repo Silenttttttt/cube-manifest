@@ -7,7 +7,7 @@ parses back into its own runtime config. That module is the ground truth for
 every key spelling and value encoding here - this file exists purely to keep
 producing what it already expects, reproducing the *behavior* of the old
 app-generator/terraform_generator.py::generate_deployment (lines ~415-494)
-against the new, validated ``manifest.schema.models.AppConfig`` shape.
+against the new, validated ``cube_manifest.schema.models.AppConfig`` shape.
 
 Do not "clean up" a key spelling or encoding here without re-checking
 scaler.py first - a silent drift is invisible until an idle app mysteriously
@@ -39,7 +39,7 @@ the literal string:
 
 from __future__ import annotations
 
-from manifest.schema.models import AppConfig
+from cube_manifest.schema.models import AppConfig
 
 ANNOTATION_PREFIX = "activator.cubernetes.io"
 

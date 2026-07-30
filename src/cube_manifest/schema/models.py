@@ -674,7 +674,7 @@ class RegistryConfig(BaseModel):
 class AppConfig(BaseModel):
     """The root schema. `extra='forbid'` deliberately - an unrecognized field
     in app.yml (typo, stale key from a schema migration) fails loudly at
-    `manifest validate` instead of being silently ignored the way the old
+    `cube_manifest validate` instead of being silently ignored the way the old
     config_parser.py's plain dict-based parsing did."""
 
     model_config = ConfigDict(extra="forbid")

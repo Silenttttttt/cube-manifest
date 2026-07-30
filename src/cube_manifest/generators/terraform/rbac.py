@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from manifest.schema.models import AppConfig, RbacRule
+from cube_manifest.schema.models import AppConfig, RbacRule
 
 from ._common import merge_fragments, namespace_ref
 
@@ -31,7 +31,7 @@ def build_service_account(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": f"{app_name}-service-account",
             "namespace": namespace_ref(app.namespace),
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         },
         "automount_service_account_token": True,
     }}}}
@@ -53,11 +53,11 @@ def build_role_resources(app: AppConfig, app_name: str, *, cluster_scope: bool) 
         binding_tf_name = f"{app_name}_cluster_role_binding"
         role_metadata: dict[str, Any] = {
             "name": f"{app_name}-cluster-role",
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         }
         binding_metadata: dict[str, Any] = {
             "name": f"{app_name}-cluster-role-binding",
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         }
     else:
         role_resource_type = "kubernetes_role"
@@ -68,12 +68,12 @@ def build_role_resources(app: AppConfig, app_name: str, *, cluster_scope: bool) 
         role_metadata = {
             "name": f"{app_name}-role",
             "namespace": namespace,
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         }
         binding_metadata = {
             "name": f"{app_name}-role-binding",
             "namespace": namespace,
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         }
 
     role_body = {"metadata": role_metadata, "rule": rules}

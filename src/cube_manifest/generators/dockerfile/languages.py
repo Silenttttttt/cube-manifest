@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from manifest.schema.models import AppConfig
+from cube_manifest.schema.models import AppConfig
 
 from . import common
 

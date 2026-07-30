@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from manifest.schema.models import AppConfig
+from cube_manifest.schema.models import AppConfig
 
 from ._common import get_image_reference, namespace_ref
 
@@ -120,7 +120,7 @@ def build_secret(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": f"{app_name}-secret",
             "namespace": namespace_ref(app.namespace),
-            "labels": {"app": app_name, "managed-by": "manifest"},
+            "labels": {"app": app_name, "managed-by": "cube_manifest"},
         },
         "type": "Opaque",
         "wait_for_service_account_token": True,
@@ -184,7 +184,7 @@ def build_microservice_secret(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": app_name,
             "namespace": namespace_ref(app.namespace),
-            "labels": {"app": app_name, "type": "microservice", "managed-by": "manifest"},
+            "labels": {"app": app_name, "type": "microservice", "managed-by": "cube_manifest"},
         },
         "type": "Opaque",
         "data": data,
