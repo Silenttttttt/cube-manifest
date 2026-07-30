@@ -273,15 +273,25 @@ class Rbac(BaseModel):
 class StorageEntry(BaseModel):
     """Unifies the old storage[] (PVC) and volumes[] (legacy hostPath) shapes
     conceptually - a StorageEntry with host_path set generates a hostPath
-    volume, one with size set generates a PVC. Exactly one of the two must
-    be set (enforced below), instead of two entirely separate, silently-
-    coexisting list fields."""
+    volume, one with size set generates a PVC, one with empty_dir set
+    generates an emptyDir. Exactly one of the three must be set (enforced
+    below), instead of separate, silently-coexisting fields.
+
+    empty_dir exists for ephemeral, node-agnostic data shared between an
+    init container and the main container within the same pod (e.g. an
+    init container writing a config file the main container reads at
+    startup) - unlike host_path, it doesn't tie the pod to a specific
+    node's filesystem, and unlike a PVC it needs no storage class or
+    provisioner, matching what a real, portable OSS tool should default to
+    for "just share a small file/dir within this pod, don't persist it."
+    """
 
     model_config = ConfigDict(extra="forbid")
     name: str
     mount_path: str
     size: str | None = None
     host_path: str | None = None
+    empty_dir: bool = False
     # Real default confirmed against terraform_generator.py (every call site
     # reads it as `storage.get('get_or_create', False)`, e.g. line 226's
     # `has_get_or_create` workload-shape check and line 2209's PVC-vs-
@@ -301,8 +311,12 @@ class StorageEntry(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_backing(self):
-        if (self.size is None) == (self.host_path is None):
-            raise ValueError(f"storage entry {self.name!r} must set exactly one of size (PVC) / host_path (hostPath)")
+        backings = [self.size is not None, self.host_path is not None, self.empty_dir]
+        if sum(backings) != 1:
+            raise ValueError(
+                f"storage entry {self.name!r} must set exactly one of "
+                "size (PVC) / host_path (hostPath) / empty_dir (emptyDir)"
+            )
         return self
 
 

@@ -45,12 +45,12 @@ def build_volumes(app: AppConfig, app_name: str, *, include_fresh_pvc: bool = Tr
     `volume_claim_template`).
 
     Precedence per storage entry, matching the unified StorageEntry shape:
-    host_path -> hostPath volume; existing_pvc -> reference it directly;
-    get_or_create -> reference the get-or-create-named PVC resource;
-    otherwise (fresh, non-get_or_create PVC) -> reference the
-    `{name}_pvc`-named PVC resource, but only when `include_fresh_pvc` is
-    True (StatefulSet callers pass False since that case is handled by
-    `volume_claim_template` instead).
+    host_path -> hostPath volume; empty_dir -> emptyDir volume;
+    existing_pvc -> reference it directly; get_or_create -> reference the
+    get-or-create-named PVC resource; otherwise (fresh, non-get_or_create
+    PVC) -> reference the `{name}_pvc`-named PVC resource, but only when
+    `include_fresh_pvc` is True (StatefulSet callers pass False since that
+    case is handled by `volume_claim_template` instead).
     """
     volumes: list[dict[str, Any]] = []
     if app.registry_config is not None:
@@ -59,7 +59,9 @@ def build_volumes(app: AppConfig, app_name: str, *, include_fresh_pvc: bool = Tr
             "config_map": {"name": f"${{kubernetes_config_map.{app_name}.metadata[0].name}}"},
         })
     for s in app.storage:
-        if s.host_path is not None:
+        if s.empty_dir:
+            volumes.append({"name": s.name, "empty_dir": {}})
+        elif s.host_path is not None:
             volumes.append({"name": s.name, "host_path": {"path": s.host_path}})
         elif s.existing_pvc is not None:
             volumes.append({"name": s.name, "persistent_volume_claim": {"claim_name": s.existing_pvc}})
