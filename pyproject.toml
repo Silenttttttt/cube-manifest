@@ -42,3 +42,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's whole API is built around calling typer.Option()/typer.Argument()
+# as parameter defaults - bugbear's "no function calls in defaults" check
+# doesn't know about that convention.
+"src/cube_manifest/cli.py" = ["B008"]

@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 import warnings
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -78,7 +78,7 @@ class ImageConfig(BaseModel):
     the empty-dict `image: {}` idiom meaning "let the generator decide")."""
 
     model_config = ConfigDict(extra="forbid")
-    name: Optional[str] = None
+    name: str | None = None
     pull_policy: Literal["Always", "IfNotPresent", "Never"] = "Never"
 
 
@@ -96,8 +96,8 @@ class ImageSpec(BaseModel):
 class CacheOptimization(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    dependency_cache_mount: Optional[str] = None
-    build_cache_mount: Optional[str] = None
+    dependency_cache_mount: str | None = None
+    build_cache_mount: str | None = None
 
 
 class UserConfig(BaseModel):
@@ -110,9 +110,9 @@ class UserConfig(BaseModel):
 
 class Probe(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    path: Optional[str] = None
-    port: Optional[int] = None
-    command: Optional[list[str]] = None
+    path: str | None = None
+    port: int | None = None
+    command: list[str] | None = None
     initial_delay_seconds: int = 5
     period_seconds: int = 10
     timeout_seconds: int = 3
@@ -133,8 +133,8 @@ class HealthCheck(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    liveness: Optional[Probe] = None
-    readiness: Optional[Probe] = None
+    liveness: Probe | None = None
+    readiness: Probe | None = None
 
 
 class DockerHealthCheck(BaseModel):
@@ -153,7 +153,7 @@ class DockerHealthCheck(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    command: Optional[Union[str, list[str]]] = None
+    command: str | list[str] | None = None
     interval: str = "30s"
     retries: int = 3
     timeout: str = "10s"
@@ -172,20 +172,20 @@ class SecurityContext(BaseModel):
     infrastructure_config.security_context, which share this exact shape."""
 
     model_config = ConfigDict(extra="forbid")
-    run_as_user: Optional[int] = None
-    run_as_group: Optional[int] = None
-    run_as_non_root: Optional[bool] = None
-    read_only_root_filesystem: Optional[bool] = None
-    fs_group: Optional[int] = None
-    fs_group_change_policy: Optional[str] = None
-    allow_privilege_escalation: Optional[bool] = None
-    capabilities: Optional[SecurityCapabilities] = None
+    run_as_user: int | None = None
+    run_as_group: int | None = None
+    run_as_non_root: bool | None = None
+    read_only_root_filesystem: bool | None = None
+    fs_group: int | None = None
+    fs_group_change_policy: str | None = None
+    allow_privilege_escalation: bool | None = None
+    capabilities: SecurityCapabilities | None = None
 
 
 class DockerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     language: str = "generic"
-    base_image: Optional[str] = None
+    base_image: str | None = None
     working_dir: str = "/app"
     system_dependencies: list[str] = Field(default_factory=list)
     build_dependencies: list[str] = Field(default_factory=list)
@@ -198,15 +198,15 @@ class DockerConfig(BaseModel):
     install_env: dict[str, str] = Field(default_factory=dict)
     exposed_ports: list[int] = Field(default_factory=list)
     cache_optimization: CacheOptimization = Field(default_factory=CacheOptimization)
-    user_config: Optional[UserConfig] = None
-    health_check: Optional[DockerHealthCheck] = None
+    user_config: UserConfig | None = None
+    health_check: DockerHealthCheck | None = None
     # Dockerfile-build shape (local-storage, shy-worm-*, video-generator,
     # voice-cloning, whatsapp-clone): a repo is fetched (external_repo) and
     # built from a real Dockerfile instead of the docker-less fields above -
     # never consumed by terraform_generator.py itself (that's a separate
     # build-pipeline concern), but real app.yml data.
-    dockerfile: Optional[str] = None
-    context: Optional[str] = None
+    dockerfile: str | None = None
+    context: str | None = None
 
 
 class MicroserviceConfig(BaseModel):
@@ -215,8 +215,8 @@ class MicroserviceConfig(BaseModel):
     max_execution_time: int = 300
     cleanup_after_completion: bool = True
     retry_failed_jobs: bool = False
-    queue_name: Optional[str] = None  # defaulted to f"{app.name}-queue" by AppConfig's validator
-    custom_resources: Optional[Resources] = None
+    queue_name: str | None = None  # defaulted to f"{app.name}-queue" by AppConfig's validator
+    custom_resources: Resources | None = None
 
 
 class SecretKeyRef(BaseModel):
@@ -233,8 +233,8 @@ class EnvVarValueFrom(BaseModel):
 class EnvVar(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
-    value: Optional[str] = None
-    value_from: Optional[EnvVarValueFrom] = None
+    value: str | None = None
+    value_from: EnvVarValueFrom | None = None
 
     @model_validator(mode="after")
     def at_most_one_value_source(self):
@@ -280,8 +280,8 @@ class StorageEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     mount_path: str
-    size: Optional[str] = None
-    host_path: Optional[str] = None
+    size: str | None = None
+    host_path: str | None = None
     # Real default confirmed against terraform_generator.py (every call site
     # reads it as `storage.get('get_or_create', False)`, e.g. line 226's
     # `has_get_or_create` workload-shape check and line 2209's PVC-vs-
@@ -291,11 +291,11 @@ class StorageEntry(BaseModel):
     # Deployment+standalone-PVC shape (confirmed live: docker-registry/app.yml
     # doesn't set get_or_create and is a real, currently-running StatefulSet).
     get_or_create: bool = False
-    pvc_name: Optional[str] = None
-    existing_pvc: Optional[str] = None
+    pvc_name: str | None = None
+    existing_pvc: str | None = None
     prevent_destroy: bool = False
-    reclaim_policy: Optional[Literal["Retain", "Delete"]] = None
-    storage_class: Optional[str] = None  # None = use the cluster config's default, not a hardcoded literal
+    reclaim_policy: Literal["Retain", "Delete"] | None = None
+    storage_class: str | None = None  # None = use the cluster config's default, not a hardcoded literal
     access_mode: str = "ReadWriteOnce"
     read_only: bool = False
 
@@ -309,10 +309,10 @@ class StorageEntry(BaseModel):
 class IngressConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
-    host: Optional[str] = None
+    host: str | None = None
     service_port: int = 80
     tls: bool = False
-    tls_secret: Optional[str] = None
+    tls_secret: str | None = None
 
     @model_validator(mode="after")
     def host_required_if_enabled(self):
@@ -323,10 +323,10 @@ class IngressConfig(BaseModel):
 
 class Toleration(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    key: Optional[str] = None
-    operator: Optional[Literal["Exists", "Equal"]] = None
-    value: Optional[str] = None
-    effect: Optional[Literal["NoSchedule", "PreferNoSchedule", "NoExecute"]] = None
+    key: str | None = None
+    operator: Literal["Exists", "Equal"] | None = None
+    value: str | None = None
+    effect: Literal["NoSchedule", "PreferNoSchedule", "NoExecute"] | None = None
 
 
 class NodeAffinityTerm(BaseModel):
@@ -334,7 +334,7 @@ class NodeAffinityTerm(BaseModel):
     key: str
     operator: str
     values: list[str] = Field(default_factory=list)
-    weight: Optional[int] = None  # only meaningful for `preferred` terms
+    weight: int | None = None  # only meaningful for `preferred` terms
 
 
 class NodeAffinity(BaseModel):
@@ -345,22 +345,22 @@ class NodeAffinity(BaseModel):
 
 class Affinity(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    node_affinity: Optional[NodeAffinity] = None
+    node_affinity: NodeAffinity | None = None
 
 
 class AntiAffinity(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
-    type: Optional[str] = None
+    type: str | None = None
 
 
 class Rebalancing(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    strategy: Optional[Literal["immediate", "gradual", "manual"]] = None
-    trigger: Optional[Literal["node_availability", "resource_pressure", "schedule", "manual"]] = None
-    min_age_minutes: Optional[int] = None
-    cooldown_minutes: Optional[int] = None
+    strategy: Literal["immediate", "gradual", "manual"] | None = None
+    trigger: Literal["node_availability", "resource_pressure", "schedule", "manual"] | None = None
+    min_age_minutes: int | None = None
+    cooldown_minutes: int | None = None
 
 
 class SchedulingConfig(BaseModel):
@@ -372,17 +372,17 @@ class SchedulingConfig(BaseModel):
     # old code prints an ERROR and rewrites it to 'indifferent' rather than
     # rejecting it) - compat.py normalizes that alias the same way.
     node_preference: Literal["critical", "indifferent", "workload"] = "indifferent"
-    priority_class: Optional[str] = None
-    affinity: Optional[Affinity] = None
+    priority_class: str | None = None
+    affinity: Affinity | None = None
     # A second, separate real shape: scheduling.node_affinity.required (no
     # `affinity` wrapper) used directly by rabbitmq/postgres, alongside
     # scheduling.affinity.node_affinity.{required,preferred} used by others -
     # both coexist as independent fields, not unified, matching the two
     # genuinely distinct shapes found across the real app.yml files.
-    node_affinity: Optional[NodeAffinity] = None
-    anti_affinity: Optional[AntiAffinity] = None
+    node_affinity: NodeAffinity | None = None
+    anti_affinity: AntiAffinity | None = None
     tolerations: list[Toleration] = Field(default_factory=list)
-    rebalancing: Optional[Rebalancing] = None
+    rebalancing: Rebalancing | None = None
 
 
 class HostPathSpec(BaseModel):
@@ -409,10 +409,10 @@ class InfrastructureConfig(BaseModel):
     daemonset: bool = False
     tolerations: list[Toleration] = Field(default_factory=list)
     node_selector: dict[str, str] = Field(default_factory=dict)
-    runtime_class_name: Optional[str] = None
+    runtime_class_name: str | None = None
     volumes: list[InfraVolume] = Field(default_factory=list)
     volume_mounts: list[VolumeMountSpec] = Field(default_factory=list)
-    security_context: Optional[SecurityContext] = None
+    security_context: SecurityContext | None = None
 
 
 class ActivationType(str, Enum):
@@ -430,9 +430,9 @@ class QueueRef(BaseModel):
 class Activation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: ActivationType = ActivationType.http
-    port: Optional[int] = None
+    port: int | None = None
     extra_ports: list[int] = Field(default_factory=list)
-    queue: Optional[QueueRef] = None
+    queue: QueueRef | None = None
 
     @model_validator(mode="after")
     def queue_required_for_queue_depth(self):
@@ -449,7 +449,7 @@ class Scaling(BaseModel):
     min_replicas: int = 1
     idle_timeout_seconds: int = 300
     write_protected: bool = False
-    activation: Optional[Activation] = None
+    activation: Activation | None = None
 
     @model_validator(mode="after")
     def activation_recommended_for_scale_to_zero(self):
@@ -475,7 +475,7 @@ class InitContainer(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: list[EnvVar] = Field(default_factory=list)
     volume_mounts: list[VolumeMountSpec] = Field(default_factory=list)
-    security_context: Optional[SecurityContext] = None
+    security_context: SecurityContext | None = None
 
 
 PATH_PREFIX_RE = re.compile(r"^/[a-zA-Z0-9/_-]*$")
@@ -484,7 +484,7 @@ PATH_PREFIX_RE = re.compile(r"^/[a-zA-Z0-9/_-]*$")
 class VpsRoute(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path_prefix: str
-    host: Optional[str] = None
+    host: str | None = None
 
     @field_validator("path_prefix")
     @classmethod
@@ -507,8 +507,8 @@ class ExternalRepo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str
     branch: str = "main"
-    path: Optional[str] = None
-    ssh_key_secret: Optional[str] = None
+    path: str | None = None
+    ssh_key_secret: str | None = None
 
 
 class RollingUpdateSpec(BaseModel):
@@ -520,7 +520,7 @@ class RollingUpdateSpec(BaseModel):
 class DeploymentStrategy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["RollingUpdate", "Recreate"] = "RollingUpdate"
-    rolling_update: Optional[RollingUpdateSpec] = None
+    rolling_update: RollingUpdateSpec | None = None
 
 
 class CleanupConfig(BaseModel):
@@ -543,8 +543,8 @@ class CleanupConfig(BaseModel):
 class MonitoringConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    metrics_port: Optional[int] = None
-    health_endpoint: Optional[str] = None
+    metrics_port: int | None = None
+    health_endpoint: str | None = None
 
 
 class ContainerSpec(BaseModel):
@@ -581,11 +581,11 @@ class ContainerConfig(BaseModel):
 
 class ServicePort(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: Optional[str] = None
+    name: str | None = None
     port: int
-    target_port: Optional[int] = None
+    target_port: int | None = None
     protocol: str = "TCP"
-    node_port: Optional[int] = None
+    node_port: int | None = None
 
 
 class ServiceSpec(BaseModel):
@@ -602,7 +602,7 @@ class ServiceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: ServiceType = ServiceType.cluster_ip
     ports: list[ServicePort] = Field(default_factory=list)
-    node_port: Optional[int] = None  # bare service.node_port shape - not seen in the 26 real apps, but compat.py's normalize_node_port defends against it
+    node_port: int | None = None  # bare service.node_port shape - not seen in the 26 real apps, but compat.py's normalize_node_port defends against it
 
 
 class RegistryStorageDriverHealth(BaseModel):
@@ -614,37 +614,37 @@ class RegistryStorageDriverHealth(BaseModel):
 
 class RegistryHealth(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    storagedriver: Optional[RegistryStorageDriverHealth] = None
+    storagedriver: RegistryStorageDriverHealth | None = None
 
 
 class RegistryHttp(BaseModel):
     model_config = ConfigDict(extra="forbid")
     addr: str = ":5000"
     headers: dict[str, list[str]] = Field(default_factory=dict)
-    timeout: Optional[str] = None
-    read_timeout: Optional[str] = None
-    write_timeout: Optional[str] = None
-    drain_timeout: Optional[str] = None
-    max_connections: Optional[int] = None
-    max_idle_connections: Optional[int] = None
-    max_idle_connections_per_host: Optional[int] = None
+    timeout: str | None = None
+    read_timeout: str | None = None
+    write_timeout: str | None = None
+    drain_timeout: str | None = None
+    max_connections: int | None = None
+    max_idle_connections: int | None = None
+    max_idle_connections_per_host: int | None = None
 
 
 class RegistryLogFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    service: Optional[str] = None
+    service: str | None = None
 
 
 class RegistryLog(BaseModel):
     model_config = ConfigDict(extra="forbid")
     level: str = "info"
-    fields: Optional[RegistryLogFields] = None
+    fields: RegistryLogFields | None = None
 
 
 class RegistryFilesystemStorage(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rootdirectory: str
-    maxthreads: Optional[int] = None
+    maxthreads: int | None = None
 
 
 class RegistryDelete(BaseModel):
@@ -654,8 +654,8 @@ class RegistryDelete(BaseModel):
 
 class RegistryStorage(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    filesystem: Optional[RegistryFilesystemStorage] = None
-    delete: Optional[RegistryDelete] = None
+    filesystem: RegistryFilesystemStorage | None = None
+    delete: RegistryDelete | None = None
 
 
 class RegistryConfig(BaseModel):
@@ -665,10 +665,10 @@ class RegistryConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     version: float = 0.1
-    log: Optional[RegistryLog] = None
-    storage: Optional[RegistryStorage] = None
-    http: Optional[RegistryHttp] = None
-    health: Optional[RegistryHealth] = None
+    log: RegistryLog | None = None
+    storage: RegistryStorage | None = None
+    http: RegistryHttp | None = None
+    health: RegistryHealth | None = None
 
 
 class AppConfig(BaseModel):
@@ -685,23 +685,23 @@ class AppConfig(BaseModel):
     # terraform_generator.py or config_parser.py ever reads config['app_name']
     # (every `app_name` in that codebase is a local variable/function
     # parameter derived from config['name'], never a raw-dict lookup).
-    app_name: Optional[str] = None
+    app_name: str | None = None
     enabled: bool
     app_type: AppType = AppType.service
     replicas: int = 1
     namespace: str = "dev"
     service_type: ServiceType = ServiceType.cluster_ip
     port: int = 80
-    node_port: Optional[int] = None
+    node_port: int | None = None
     dependencies: list[str] = Field(default_factory=list)
     image: ImageConfig = Field(default_factory=ImageConfig)
-    image_config: Optional[ImageSpec] = None
-    image_pull_policy: Optional[Literal["Always", "IfNotPresent", "Never"]] = None
-    image_pull_timeout: Optional[int] = None
+    image_config: ImageSpec | None = None
+    image_pull_policy: Literal["Always", "IfNotPresent", "Never"] | None = None
+    image_pull_timeout: int | None = None
     resources: Resources = Field(default_factory=Resources)
-    resource_profile: Optional[ResourceProfile] = None
+    resource_profile: ResourceProfile | None = None
     docker_config: DockerConfig = Field(default_factory=DockerConfig)
-    microservice_config: Optional[MicroserviceConfig] = None
+    microservice_config: MicroserviceConfig | None = None
     environment: list[EnvVar] = Field(default_factory=list)
     secrets: dict[str, str] = Field(default_factory=dict)
     secrets_as_env_vars: bool = False
@@ -714,25 +714,25 @@ class AppConfig(BaseModel):
     health_check: HealthCheck = Field(default_factory=HealthCheck)
     security_context: SecurityContext = Field(default_factory=SecurityContext)
     init_containers: list[InitContainer] = Field(default_factory=list)
-    vps_route: Optional[VpsRoute] = None
-    external_repo: Optional[ExternalRepo] = None
-    deployment_strategy: Optional[DeploymentStrategy] = None
-    description: Optional[str] = None
-    version: Optional[str] = None
-    expose_service: Optional[bool] = None
-    host_network: Optional[bool] = None
-    restart_policy: Optional[Literal["Always", "OnFailure", "Never"]] = None
-    termination_grace_period: Optional[int] = None
-    cleanup: Optional[CleanupConfig] = None
+    vps_route: VpsRoute | None = None
+    external_repo: ExternalRepo | None = None
+    deployment_strategy: DeploymentStrategy | None = None
+    description: str | None = None
+    version: str | None = None
+    expose_service: bool | None = None
+    host_network: bool | None = None
+    restart_policy: Literal["Always", "OnFailure", "Never"] | None = None
+    termination_grace_period: int | None = None
+    cleanup: CleanupConfig | None = None
     configmap: dict[str, str] = Field(default_factory=dict)
     labels: dict[str, str] = Field(default_factory=dict)
     annotations: dict[str, str] = Field(default_factory=dict)
-    monitoring: Optional[MonitoringConfig] = None
-    container: Optional[ContainerSpec] = None
-    container_config: Optional[ContainerConfig] = None
-    container_security_context: Optional[SecurityContext] = None
-    service: Optional[ServiceSpec] = None
-    registry_config: Optional[RegistryConfig] = None
+    monitoring: MonitoringConfig | None = None
+    container: ContainerSpec | None = None
+    container_config: ContainerConfig | None = None
+    container_security_context: SecurityContext | None = None
+    service: ServiceSpec | None = None
+    registry_config: RegistryConfig | None = None
 
     @field_validator("name")
     @classmethod
@@ -748,13 +748,13 @@ class AppConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def microservice_config_required_for_microservice(self) -> "AppConfig":
+    def microservice_config_required_for_microservice(self) -> AppConfig:
         if self.app_type == AppType.microservice and self.microservice_config is None:
             self.microservice_config = MicroserviceConfig()
         return self
 
     @model_validator(mode="after")
-    def default_queue_name(self) -> "AppConfig":
+    def default_queue_name(self) -> AppConfig:
         if self.microservice_config is not None and self.microservice_config.queue_name is None:
             self.microservice_config.queue_name = f"{self.name}-queue"
         return self

@@ -16,7 +16,6 @@ Two paths:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from cube_manifest.schema.models import AppConfig
 

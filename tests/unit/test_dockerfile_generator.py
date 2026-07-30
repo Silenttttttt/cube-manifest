@@ -47,7 +47,7 @@ def _copy_from_lines(dockerfile: str) -> list[str]:
 
 def make_app(**overrides) -> AppConfig:
     docker_config = overrides.pop("docker_config", None) or DockerConfig()
-    defaults = dict(name="testapp", enabled=True)
+    defaults = {"name": "testapp", "enabled": True}
     defaults.update(overrides)
     return AppConfig(docker_config=docker_config, **defaults)
 
@@ -58,60 +58,60 @@ def make_app(**overrides) -> AppConfig:
 
 
 def python_app(**dc_overrides) -> AppConfig:
-    base = dict(
-        language="python",
-        base_image="python:3.12-slim",
-        entry_point=["python", "app.py"],
-        exposed_ports=[8080],
-        environment_vars={"PYTHONPATH": "/app"},
-        user_config=UserConfig(user="appuser", uid=1002, gid=1002),
-        health_check=DockerHealthCheck(enabled=True, command="curl -f http://localhost:8080/health || exit 1"),
-        cache_optimization=CacheOptimization(enabled=True, dependency_cache_mount="/root/.cache/pip"),
-    )
+    base = {
+        "language": "python",
+        "base_image": "python:3.12-slim",
+        "entry_point": ["python", "app.py"],
+        "exposed_ports": [8080],
+        "environment_vars": {"PYTHONPATH": "/app"},
+        "user_config": UserConfig(user="appuser", uid=1002, gid=1002),
+        "health_check": DockerHealthCheck(enabled=True, command="curl -f http://localhost:8080/health || exit 1"),
+        "cache_optimization": CacheOptimization(enabled=True, dependency_cache_mount="/root/.cache/pip"),
+    }
     base.update(dc_overrides)
     return make_app(name="python-svc", docker_config=DockerConfig(**base))
 
 
 def node_app(**dc_overrides) -> AppConfig:
-    base = dict(
-        language="node",
-        base_image="node:20-alpine",
-        build_commands=["npm run build"],
-        entry_point=["node", "server.js"],
-        exposed_ports=[3000],
-        user_config=UserConfig(user="nodeuser", uid=1001, gid=1001),
-        cache_optimization=CacheOptimization(enabled=True),
-    )
+    base = {
+        "language": "node",
+        "base_image": "node:20-alpine",
+        "build_commands": ["npm run build"],
+        "entry_point": ["node", "server.js"],
+        "exposed_ports": [3000],
+        "user_config": UserConfig(user="nodeuser", uid=1001, gid=1001),
+        "cache_optimization": CacheOptimization(enabled=True),
+    }
     base.update(dc_overrides)
     return make_app(name="node-svc", docker_config=DockerConfig(**base))
 
 
 def rust_app(**dc_overrides) -> AppConfig:
-    base = dict(
-        language="rust",
-        exposed_ports=[9000],
-        cache_optimization=CacheOptimization(enabled=True),
-    )
+    base = {
+        "language": "rust",
+        "exposed_ports": [9000],
+        "cache_optimization": CacheOptimization(enabled=True),
+    }
     base.update(dc_overrides)
     return make_app(name="rust-svc", docker_config=DockerConfig(**base))
 
 
 def go_app(**dc_overrides) -> AppConfig:
-    base = dict(
-        language="go",
-        exposed_ports=[8081],
-        cache_optimization=CacheOptimization(enabled=True),
-    )
+    base = {
+        "language": "go",
+        "exposed_ports": [8081],
+        "cache_optimization": CacheOptimization(enabled=True),
+    }
     base.update(dc_overrides)
     return make_app(name="go-svc", docker_config=DockerConfig(**base))
 
 
 def java_app(**dc_overrides) -> AppConfig:
-    base = dict(
-        language="java",
-        exposed_ports=[8082],
-        cache_optimization=CacheOptimization(enabled=True),
-    )
+    base = {
+        "language": "java",
+        "exposed_ports": [8082],
+        "cache_optimization": CacheOptimization(enabled=True),
+    }
     base.update(dc_overrides)
     return make_app(name="java-svc", docker_config=DockerConfig(**base))
 
