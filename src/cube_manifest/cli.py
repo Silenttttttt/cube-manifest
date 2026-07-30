@@ -165,6 +165,13 @@ def build_cmd(
         help="Push the built image(s) to the registry. --no-push also skips rollback-tagging (which "
         "itself pushes :previous) - a local-only build shouldn't mutate the registry at all.",
     ),
+    prewarm: bool = typer.Option(
+        True,
+        "--prewarm/--no-prewarm",
+        help="After a successful push, force every schedulable node to pull the new image right now "
+        "(via a disposable per-node Pod) instead of leaving the first pull to whenever this app next "
+        "cold-starts. --no-prewarm skips this - the image just sits unpulled until something needs it.",
+    ),
 ) -> None:
     """Build the real Docker image for one app (cloning `external_repo` first
     if it's set - the source doesn't live under this app's own directory in
@@ -189,7 +196,7 @@ def build_cmd(
         )
 
     try:
-        result = build_mod.build_and_push(cfg, path.parent, push=push)
+        result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm)
     except build_mod.BuildError as exc:
         err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -214,6 +221,22 @@ def build_cmd(
         err_console.print(f"[red]Push failed: {result.latest_tag}[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Pushed {result.latest_tag}[/green]")
+
+    if not prewarm:
+        console.print("[yellow]--no-prewarm: image left unpulled until something needs it.[/yellow]")
+        return
+    if not result.prewarm_results:
+        console.print("[yellow]No Ready/schedulable nodes found to prewarm.[/yellow]")
+        return
+    any_failed = False
+    for node, ok, message in result.prewarm_results:
+        if ok:
+            console.print(f"[green]Prewarmed {node}:[/green] {message}")
+        else:
+            any_failed = True
+            err_console.print(f"[red]Prewarm failed on {node}:[/red] {message}")
+    if any_failed:
+        raise typer.Exit(1)
 
 
 def _require_terraform() -> None:

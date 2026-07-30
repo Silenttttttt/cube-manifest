@@ -117,6 +117,21 @@ flowchart LR
   `ENC[...]` scheme some clusters use - decryption happens once, at load
   time; nothing downstream needs to know the format exists, and nothing is
   ever written to disk in plaintext.
+- Node image prewarming after `cube build`: `build_and_push` only ever
+  talks to the registry via plain `docker push` - no node's kubelet ever
+  pulls the image until some Deployment actually needs it. For a
+  `min_replicas: 0` app that first pull gets deferred all the way to the
+  next real cold start, which then pays full network-pull latency as part
+  of what's supposed to be a fast scale-up. Confirmed for real on this
+  project's own cluster: a 55MB image's first-ever pull took 94s
+  immediately after a build, even though a raw registry blob fetch on the
+  same link measured over 1GB/s moments later - the image was simply never
+  resident on any node yet, not a slow registry. `cube build` now forces
+  every Ready, schedulable node to pull the freshly pushed image right
+  away (a disposable per-node Pod, `imagePullPolicy: Always`, deleted once
+  the pull completes) - the same 55MB image's *next* cold start pulled in
+  61ms instead of 94s. `--no-prewarm` skips this if you'd rather defer the
+  pull yourself.
 
 All of the above has been run for real, not just tested in isolation -
 see [Battle-tested](#battle-tested) below.
@@ -165,8 +180,9 @@ cube list                          # every app under ./apps, type + enabled stat
 cube validate [app...]             # schema-check one, several, or all apps
 cube generate dockerfile <app>     # print (or --out FILE) the generated Dockerfile
 cube generate terraform <app>      # print (or --out FILE) the generated .tf.json
-cube build <app> [--no-push]       # real docker build, tag as :latest, roll the old :latest to
-                                    # :previous first, then push (unless --no-push)
+cube build <app> [--no-push] [--no-prewarm]  # real docker build, tag as :latest, roll the old :latest
+                                    # to :previous first, then push (unless --no-push) and prewarm
+                                    # every node's image cache (unless --no-prewarm)
 cube plan <app>                    # real terraform plan against your cluster - read-only
 cube apply <app> [--yes]           # apply it for real - requires --yes to actually touch anything
 ```

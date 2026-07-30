@@ -29,13 +29,15 @@ fail under that builder even though `docker push` on its own works fine.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cube_manifest.config import get_cluster_config
@@ -172,6 +174,122 @@ def rollback_previous(app_name: str) -> tuple[bool, str]:
     return True, f"Retagged the existing {latest_tag} as {previous_tag} and pushed it."
 
 
+def _candidate_nodes() -> list[str]:
+    """Every currently Ready, schedulable node name - `kubectl get nodes`,
+    not a node-local shortcut (SSH/`crictl` on a specific box), because
+    prewarming has to work identically on any cluster this tool targets,
+    not just ones where the caller happens to have host access to every
+    node. Cordoned (`unschedulable`) nodes are skipped - the real scheduler
+    would never place the app there either, so warming them would be
+    pulling an image nothing can use yet."""
+    result = _run(["kubectl", "get", "nodes", "-o", "json"])
+    if result.returncode != 0:
+        raise BuildError(f"kubectl get nodes failed:\n{result.stdout}{result.stderr}")
+    nodes = json.loads(result.stdout)["items"]
+    names = []
+    for n in nodes:
+        if n.get("spec", {}).get("unschedulable"):
+            continue
+        conditions = {c["type"]: c["status"] for c in n.get("status", {}).get("conditions", [])}
+        if conditions.get("Ready") == "True":
+            names.append(n["metadata"]["name"])
+    return names
+
+
+def _prewarm_pod_name(app_name: str, node: str) -> str:
+    # Kubernetes object names: lowercase alphanumeric + '-', max 253 chars.
+    raw = f"cube-prewarm-{app_name}-{node}".lower().replace("_", "-").replace(".", "-")
+    return raw[:253].rstrip("-")
+
+
+def prewarm_node(app_name: str, image: str, node: str, *, timeout_seconds: int = 180) -> tuple[bool, str]:
+    """Force `node` to actually pull `image` right now, via a disposable
+    Pod pinned to it (`nodeName`, not `nodeSelector` - this has to land on
+    THIS specific node, not just some node matching a label) with
+    `imagePullPolicy: Always`. That's the real Kubernetes pull path a live
+    Deployment would use - the same thing that made this necessary in the
+    first place: `build_and_push` only ever talks to the registry via plain
+    `docker push`, so no node's kubelet/containerd is ever involved, and a
+    freshly built image can sit completely unpulled on every node
+    indefinitely. For a `min_replicas: 0` app that gap is invisible until
+    the next real cold start, which then pays a full first-time network
+    pull as part of what's supposed to be a fast scale-up.
+
+    A blanket "tolerate everything" toleration is required here on
+    purpose: this pod is placed via `nodeName`, which skips the scheduler's
+    own taint filtering, but the kubelet-side `TaintManager` can still evict
+    a running pod that doesn't tolerate a node's taints - and this has to
+    warm control-plane/critical-workload nodes too, whatever taints they
+    carry, or the exact nodes real apps schedule onto (see
+    `scheduling.node_preference` in app.yml) would be the ones left cold."""
+    pod_name = _prewarm_pod_name(app_name, node)
+    pod_manifest = {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name,
+            "labels": {"cube-manifest.io/prewarm-for": app_name},
+        },
+        "spec": {
+            "nodeName": node,
+            "restartPolicy": "Never",
+            "tolerations": [{"operator": "Exists"}],
+            "containers": [
+                {
+                    "name": "prewarm",
+                    "image": image,
+                    "imagePullPolicy": "Always",
+                    "command": ["true"],
+                }
+            ],
+        },
+    }
+
+    _run(["kubectl", "delete", "pod", pod_name, "--ignore-not-found", "--wait=true"])
+    try:
+        applied = subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=json.dumps(pod_manifest),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=_BUILDKIT_ENV,
+        )
+        if applied.returncode != 0:
+            return False, f"kubectl apply (prewarm pod) failed:\n{applied.stdout}{applied.stderr}"
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            got = _run(["kubectl", "get", "pod", pod_name, "-o", "json"])
+            if got.returncode != 0:
+                return False, f"kubectl get pod {pod_name} failed:\n{got.stdout}{got.stderr}"
+            pod = json.loads(got.stdout)
+            phase = pod.get("status", {}).get("phase")
+            if phase == "Succeeded":
+                return True, f"{image} pulled and warm on {node}."
+            if phase == "Failed":
+                return False, f"prewarm pod on {node} reached Failed:\n{json.dumps(pod['status'], indent=2)}"
+            statuses = pod.get("status", {}).get("containerStatuses", [])
+            if statuses:
+                waiting = statuses[0].get("state", {}).get("waiting", {})
+                if waiting.get("reason") == "ErrImagePull" or waiting.get("reason") == "ImagePullBackOff":
+                    return False, f"{node}: {waiting.get('reason')} - {waiting.get('message')}"
+            time.sleep(1)
+        return False, f"timed out after {timeout_seconds}s waiting for {node} to pull {image}"
+    finally:
+        _run(["kubectl", "delete", "pod", pod_name, "--ignore-not-found", "--wait=false"])
+
+
+def prewarm_image(app_name: str, image: str, *, timeout_seconds: int = 180) -> list[tuple[str, bool, str]]:
+    """Warm `image` on every real, schedulable node - see `prewarm_node`
+    for why this exists. Sequential, one node at a time: a homelab-scale
+    node count (single digits) makes the extra parallelism not worth the
+    added complexity, and sequential output is easier to read when a pull
+    is genuinely slow."""
+    nodes = _candidate_nodes()
+    return [(node, *prewarm_node(app_name, image, node, timeout_seconds=timeout_seconds)) for node in nodes]
+
+
 @dataclass
 class BuildResult:
     app_name: str
@@ -183,16 +301,23 @@ class BuildResult:
     build_output: str
     pushed_latest: bool
     push_output: str
+    prewarm_results: list[tuple[str, bool, str]] = field(default_factory=list)
 
 
-def build_and_push(app: AppConfig, app_dir: Path, *, push: bool = True) -> BuildResult:
+def build_and_push(
+    app: AppConfig, app_dir: Path, *, push: bool = True, prewarm: bool = True
+) -> BuildResult:
     """The real, end-to-end build for one app: rollback-tag (if pushing),
     resolve the real source (cloning `external_repo` first if set), generate
-    the Dockerfile, `docker build`, then `docker push` if `push` is True.
+    the Dockerfile, `docker build`, then `docker push` if `push` is True,
+    then prewarm every schedulable node's containerd cache with the image
+    that was just pushed if `prewarm` is True.
 
     `push=False` also skips the rollback-tagging step - it mutates the
     registry (pulls the old `:latest`, retags it, pushes `:previous`), which
-    a caller asking for a local-only build clearly doesn't want either."""
+    a caller asking for a local-only build clearly doesn't want either.
+    `prewarm` only ever runs after a successful push - there's nothing in
+    the registry yet to warm a node with otherwise."""
     app_name = app.name
     latest_tag = registry_tag(app_name, "latest")
     previous_tag = registry_tag(app_name, "previous")
@@ -234,6 +359,10 @@ def build_and_push(app: AppConfig, app_dir: Path, *, push: bool = True) -> Build
             pushed_latest = pushed.returncode == 0
             push_output = pushed.stdout + pushed.stderr
 
+        prewarm_results: list[tuple[str, bool, str]] = []
+        if pushed_latest and prewarm:
+            prewarm_results = prewarm_image(app_name, latest_tag)
+
         return BuildResult(
             app_name=app_name,
             latest_tag=latest_tag,
@@ -243,6 +372,7 @@ def build_and_push(app: AppConfig, app_dir: Path, *, push: bool = True) -> Build
             build_ok=build_ok,
             build_output=build_output,
             pushed_latest=pushed_latest,
+            prewarm_results=prewarm_results,
             push_output=push_output,
         )
     finally:

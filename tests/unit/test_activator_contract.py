@@ -45,16 +45,19 @@ from cube_manifest.schema.models import (
 )
 
 ACTIVATOR_SCALER_PATH = Path(
-    "/home/silent/Documents/Cubernetes/apps/activator/scaler.py"
+    "/home/silent/Documents/cube-activator/src/cube_activator/scaler.py"
 )
 
 
 def _load_real_scaler():
     """Loads the real activator scaler.py module by file path (it lives in
     a separate, unmodified sibling repo with no installed package name), so
-    the round-trip below calls the ACTUAL parsing code, not a copy of it."""
+    the round-trip below calls the ACTUAL parsing code, not a copy of it.
+    Path updated when the activator's source was extracted out of
+    Cubernetes/apps/activator/ into its own standalone cube-activator repo -
+    same file, same logic, new home."""
     if not ACTIVATOR_SCALER_PATH.exists():
-        pytest.skip(f"real activator scaler.py not found at {ACTIVATOR_SCALER_PATH}")
+        pytest.skip(f"real activator scaler.py not found at {ACTIVATOR_SCALER_PATH}", allow_module_level=True)
     spec = importlib.util.spec_from_file_location("activator_scaler_real", ACTIVATOR_SCALER_PATH)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

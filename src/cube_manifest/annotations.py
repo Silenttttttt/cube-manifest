@@ -2,7 +2,7 @@
 
 Generates the exact `activator.cubernetes.io/*` Deployment annotations that
 the ALWAYS-ON, separately-deployed activator process
-(Cubernetes/apps/activator/scaler.py, ``AppConfig.from_deployment_annotations``)
+(cube-activator's src/cube_activator/scaler.py, ``AppConfig.from_deployment_annotations``)
 parses back into its own runtime config. That module is the ground truth for
 every key spelling and value encoding here - this file exists purely to keep
 producing what it already expects, reproducing the *behavior* of the old
