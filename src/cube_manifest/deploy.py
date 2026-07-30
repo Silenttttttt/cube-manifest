@@ -33,7 +33,7 @@ KUBECTL_KIND: dict[str, tuple[str, bool]] = {
     "kubernetes_namespace": ("namespace", False),
     "kubernetes_deployment": ("deployment", True),
     "kubernetes_stateful_set": ("statefulset", True),
-    "kubernetes_daemon_set": ("daemonset", True),
+    "kubernetes_daemonset": ("daemonset", True),
     "kubernetes_service": ("service", True),
     "kubernetes_config_map": ("configmap", True),
     "kubernetes_secret": ("secret", True),
@@ -131,6 +131,7 @@ class PlanResult:
     returncode: int
     imported: list[str] = field(default_factory=list)
     import_failures: list[str] = field(default_factory=list)
+    unknown_kinds: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -175,7 +176,17 @@ def prepare_and_plan(app: AppConfig, kubeconfig: Path, *, label: str = "plan") -
     # the plan never proposes "creating" a namespace that's already there.
     _import(f"kubernetes_namespace.{app.namespace}", app.namespace)
 
+    unknown_kinds: list[str] = []
     for ref in _resource_refs(tf_doc):
+        if ref.tf_type not in KUBECTL_KIND:
+            # We have no idea whether this actually exists live - resource_exists()
+            # would silently return False and let Terraform plan a "create" for
+            # something that might already be there (exactly the bug a mapping-table
+            # gap caused for kubernetes_daemonset once). Surface it loudly instead
+            # of guessing, so a "will be created" for something you know already
+            # exists is a signal to check this table, not just apply blindly.
+            unknown_kinds.append(f"{ref.tf_type}.{ref.tf_name}")
+            continue
         if resource_exists(ref.tf_type, ref.k8s_name, app.namespace, ref.namespaced):
             import_id = f"{app.namespace}/{ref.k8s_name}" if ref.namespaced else ref.k8s_name
             _import(f"{ref.tf_type}.{ref.tf_name}", import_id)
@@ -195,6 +206,7 @@ def prepare_and_plan(app: AppConfig, kubeconfig: Path, *, label: str = "plan") -
         returncode=plan_run.returncode,
         imported=imported,
         import_failures=import_failures,
+        unknown_kinds=unknown_kinds,
     )
 
 

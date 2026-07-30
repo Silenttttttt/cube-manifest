@@ -152,6 +152,20 @@ def _load_or_exit(path: Path) -> AppConfig:
         raise typer.Exit(1) from exc
 
 
+def _print_plan_warnings(result: deploy_mod.PlanResult) -> None:
+    if result.import_failures:
+        console.print("[yellow]Could not import (will show as a real apply-time conflict instead):[/yellow]")
+        for f in result.import_failures:
+            console.print(f"  [yellow]{f}[/yellow]")
+    if result.unknown_kinds:
+        console.print(
+            "[bold red]Unknown resource kind - existence was never checked, "
+            "'will create' below may be wrong if this already exists live:[/bold red]"
+        )
+        for k in result.unknown_kinds:
+            console.print(f"  [bold red]{k}[/bold red]")
+
+
 @app.command("plan")
 def plan(
     app_name: str = typer.Argument(..., metavar="APP"),
@@ -169,10 +183,7 @@ def plan(
 
     result = deploy_mod.prepare_and_plan(cfg, kubeconfig, label="plan")
     console.print(f"[dim]{result.workdir}[/dim]")
-    if result.import_failures:
-        console.print("[yellow]Could not import (will show as a real apply-time conflict instead):[/yellow]")
-        for f in result.import_failures:
-            console.print(f"  [yellow]{f}[/yellow]")
+    _print_plan_warnings(result)
     console.print(result.output)
     if not keep:
         shutil.rmtree(result.workdir, ignore_errors=True)
@@ -199,10 +210,7 @@ def apply_cmd(
 
     result = deploy_mod.prepare_and_plan(cfg, kubeconfig, label="apply")
     console.print(f"[dim]{result.workdir}[/dim]")
-    if result.import_failures:
-        console.print("[yellow]Could not import (will show as a real apply-time conflict instead):[/yellow]")
-        for f in result.import_failures:
-            console.print(f"  [yellow]{f}[/yellow]")
+    _print_plan_warnings(result)
     console.print(result.output)
 
     if not result.ok:
