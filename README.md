@@ -185,4 +185,4 @@ was verified against the live cluster, not just asserted by a test suite:
 
 ## License
 
-Not yet decided.
+MIT — see [LICENSE](LICENSE).
