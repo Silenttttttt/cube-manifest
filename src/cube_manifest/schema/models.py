@@ -311,7 +311,11 @@ class IngressConfig(BaseModel):
     enabled: bool = False
     host: str | None = None
     service_port: int = 80
-    tls: bool = False
+    # Matches the old generate_ingress's real default (ingress_config.get('tls', True))
+    # exactly - confirmed via a real live cutover attempt: local-storage-ui's app.yml
+    # doesn't set `tls` at all, and defaulting to False here would have silently
+    # stripped a real, currently-working internal-wildcard-tls cert on apply.
+    tls: bool = True
     tls_secret: str | None = None
 
     @model_validator(mode="after")

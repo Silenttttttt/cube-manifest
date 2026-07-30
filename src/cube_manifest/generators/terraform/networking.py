@@ -116,18 +116,10 @@ def build_headless_service(app: AppConfig, app_name: str) -> dict[str, Any]:
 
 
 def build_ingress(app: AppConfig, app_name: str) -> dict[str, Any]:
-    """Ported from `generate_ingress`.
-
-    Flagged discrepancy: the old dict-based `ingress_config.get('tls', True)`
-    defaulted TLS to True when the key was absent; the schema's
-    `IngressConfig.tls` field defaults to False. Since the schema is this
-    task's ground truth (already validated against all 26 real apps) this
-    follows the schema's default rather than silently reintroducing the old
-    implicit default - but it's a real behavior difference worth confirming
-    against currently-deployed Ingress state during golden-file testing
-    (any app relying on the old implicit default would need `tls: true`
-    added to its app.yml).
-    """
+    """Ported from `generate_ingress`. `IngressConfig.tls` defaults to True,
+    matching the old generator's real default exactly (confirmed via a real
+    cutover attempt against local-storage-ui's live Ingress - defaulting to
+    False here would have silently stripped its real, working TLS cert)."""
     if not app.enabled:
         return {}
     ing = app.ingress
