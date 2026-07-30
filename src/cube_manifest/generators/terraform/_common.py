@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cube_manifest.config import get_cluster_config
 from cube_manifest.schema.models import AppConfig, AppType, DockerConfig
 
 # Namespaces this tool's own root module declares as managed
@@ -52,11 +53,12 @@ def namespace_ref(namespace: str) -> str:
 
 
 def registry_image_reference(app_name: str) -> str:
-    """Registry-based image reference for the local registry - always
-    'latest', matching the old generator's `_generate_registry_image_reference`
-    (2-tag system: 'latest' for deployments, 'previous' for rollback,
-    managed outside Terraform)."""
-    return f"192.168.1.105:30500/{app_name}:latest"
+    """Registry-based image reference for the current cluster's registry
+    (see config.py - never a hardcoded literal) - always 'latest', matching
+    the old generator's `_generate_registry_image_reference` (2-tag system:
+    'latest' for deployments, 'previous' for rollback, managed outside
+    Terraform)."""
+    return f"{get_cluster_config().registry_url}/{app_name}:latest"
 
 
 def is_standard_image(image_name: str) -> bool:
@@ -113,7 +115,7 @@ def get_image_reference(app_name: str, app: AppConfig) -> str:
 def default_pull_policy(image_ref: str) -> str:
     """Ported from the repeated inline logic in `generate_deployment`/
     `generate_statefulset`/`_validate_image_config`."""
-    if image_ref.startswith(("docker-registry-service.", "192.168.1.105:30500/")):
+    if image_ref.startswith(("docker-registry-service.", f"{get_cluster_config().registry_url}/")):
         return "Always"
     return "Always" if (":" in image_ref and not image_ref.endswith(":latest")) else "Never"
 

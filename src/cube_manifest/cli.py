@@ -1,8 +1,12 @@
-"""cube-manifest's CLI: list/validate/generate/plan/apply. `apply` is the
-only command that can mutate the real cluster, and only with `--yes` after
-a real plan (with existing resources imported first) has been shown.
-`docker build`/push isn't wired in here yet - `apply` currently assumes an
-image already exists at the tag the generator references."""
+"""cube-manifest's CLI: list/validate/generate/build/plan/apply. `apply` is
+the only command that can mutate the real cluster, and only with `--yes`
+after a real plan (with existing resources imported first) has been shown.
+`build` is the only command that touches a container registry - it builds
+the app's real image and (by default) pushes `<registry>/<app>:latest` (and
+`:previous`, retagged from whatever was already there, if anything was).
+`apply` still assumes that tag already exists at the registry by the time
+it runs - `build` and `apply` are separate, deliberately sequenced steps,
+not fused into one command."""
 
 from __future__ import annotations
 
@@ -14,7 +18,9 @@ import typer
 from rich.console import Console
 from rich.syntax import Syntax
 
+from cube_manifest import build as build_mod
 from cube_manifest import deploy as deploy_mod
+from cube_manifest.config import load_cluster_config, set_cluster_config
 from cube_manifest.generators.dockerfile import generate_dockerfile
 from cube_manifest.generators.terraform.builder import generate_terraform
 from cube_manifest.schema.errors import ConfigError
@@ -34,6 +40,12 @@ def _apps_dir(apps_dir: Path | None) -> Path:
     if not d.is_dir():
         err_console.print(f"[red]No such apps directory: {d}[/red]")
         raise typer.Exit(1)
+    # Every command resolves apps_dir through this one function, so this is
+    # the single chokepoint to load this deployment's own `.cube-manifest.yaml`
+    # (searched starting at apps_dir's parent - i.e. the repo root a real
+    # `apps/` directory lives under) and make it "the current cluster
+    # config" for every generator call this command goes on to make.
+    set_cluster_config(load_cluster_config(d.parent))
     return d
 
 
@@ -136,6 +148,72 @@ def generate_terraform_cmd(
         console.print(f"[green]Wrote {out}[/green]")
     else:
         console.print(Syntax(text, "json", theme="ansi_dark", line_numbers=False))
+
+
+@app.command("build")
+def build_cmd(
+    app_name: str = typer.Argument(..., metavar="APP"),
+    apps_dir: Path | None = typer.Option(None, "--apps-dir"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="No-op for now - there's no build-skip/cache optimization yet, every build is fresh regardless.",
+    ),
+    push: bool = typer.Option(
+        True,
+        "--push/--no-push",
+        help="Push the built image(s) to the registry. --no-push also skips rollback-tagging (which "
+        "itself pushes :previous) - a local-only build shouldn't mutate the registry at all.",
+    ),
+) -> None:
+    """Build the real Docker image for one app (cloning `external_repo` first
+    if it's set - the source doesn't live under this app's own directory in
+    that case) and, by default, push it to the registry as `<registry>/<app>
+    :latest`. If that tag already exists in the registry, it's retagged
+    `:previous` and pushed FIRST, before the new build starts - so
+    `:previous` always means "whatever was actually live before this build,"
+    never the image this same command just built (the old system's real,
+    documented bug)."""
+    d = _apps_dir(apps_dir)
+    path = _resolve_one(d, app_name)
+    cfg = _load_or_exit(path)
+
+    if force:
+        console.print("[dim]--force: no effect yet (no build-skip optimization exists to bypass).[/dim]")
+
+    console.print(f"[bold]Building {app_name} -> {build_mod.registry_tag(app_name, 'latest')}[/bold]")
+    if cfg.external_repo is not None:
+        console.print(
+            f"[dim]external_repo: {cfg.external_repo.url} @ {cfg.external_repo.branch} "
+            f"(path={cfg.external_repo.path or '.'})[/dim]"
+        )
+
+    try:
+        result = build_mod.build_and_push(cfg, path.parent, push=push)
+    except build_mod.BuildError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    if result.rolled_back:
+        console.print(f"[green]{result.rollback_message}[/green]")
+    else:
+        console.print(f"[dim]{result.rollback_message}[/dim]")
+
+    if not result.build_ok:
+        err_console.print(result.build_output)
+        err_console.print(f"[red]Build failed: {result.latest_tag}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Built {result.latest_tag}[/green]")
+
+    if not push:
+        console.print("[yellow]--no-push: built locally only.[/yellow]")
+        return
+
+    if not result.pushed_latest:
+        err_console.print(result.push_output)
+        err_console.print(f"[red]Push failed: {result.latest_tag}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Pushed {result.latest_tag}[/green]")
 
 
 def _require_terraform() -> None:

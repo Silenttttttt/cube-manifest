@@ -25,8 +25,9 @@ scaling:
 ```bash
 cube generate dockerfile hello   # see the Dockerfile it would build
 cube generate terraform hello    # see the .tf.json it would apply
+cube build hello                 # real docker build + push to your registry
 cube plan hello                  # real `terraform plan` against your cluster, read-only
-cube apply hello --yes           # actually build/apply it
+cube apply hello --yes           # actually apply it
 ```
 
 ## Why this exists
@@ -122,15 +123,30 @@ see [Battle-tested](#battle-tested) below.
 
 ## What's not built yet
 
-- `cube build` - there's no image build/push command yet. `apply` assumes
-  the image it references already exists at the registry.
 - A plugin system for anything beyond the built-in language/resource
   support (no third-party hooks yet).
 - A real secrets backend (sops/age) - the Fernet bridge is a compatibility
   shim for an existing format, not the intended long-term design.
-- A cluster-config file for registry URL / storage class / ingress class
-  defaults - these are currently read from each app's own `app.yml`, not
-  a separate portable config layer yet.
+- Storage class / ingress class cluster-wide defaults in the cluster-config
+  file - only `registry_url` lives there so far (see `cube build`/`cube
+  generate terraform` below); those two are still read from each app's own
+  `app.yml`.
+- `external_repo` build caching - `cube build` shallow-clones fresh every
+  time rather than keeping a persistent mirror per repo URL.
+
+## Cluster config
+
+Registry URL (and, later, other cluster-specific defaults) live in an
+optional `.cube-manifest.yaml`, discovered by walking up from `--apps-dir`'s
+parent directory the same way `.git`/`.eslintrc` get found:
+
+```yaml
+registry_url: "my-registry.example:5000"
+```
+
+`CUBE_MANIFEST_REGISTRY_URL` overrides whatever the file says. With neither
+a file nor the env var, `registry_url` defaults to `localhost:5000` - a
+generic default, not any one deployment's real value.
 
 ## Install
 
@@ -149,6 +165,8 @@ cube list                          # every app under ./apps, type + enabled stat
 cube validate [app...]             # schema-check one, several, or all apps
 cube generate dockerfile <app>     # print (or --out FILE) the generated Dockerfile
 cube generate terraform <app>      # print (or --out FILE) the generated .tf.json
+cube build <app> [--no-push]       # real docker build, tag as :latest, roll the old :latest to
+                                    # :previous first, then push (unless --no-push)
 cube plan <app>                    # real terraform plan against your cluster - read-only
 cube apply <app> [--yes]           # apply it for real - requires --yes to actually touch anything
 ```
