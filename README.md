@@ -47,6 +47,20 @@ opinionated on purpose. If you outgrow the opinion, the generated
 Dockerfile/Terraform are plain, inspectable text you own outright, not
 hidden behind a DSL.
 
+```mermaid
+flowchart LR
+    A["app.yml"] --> B["Schema<br/>(Pydantic validation)"]
+    B --> C["Dockerfile generator"]
+    B --> D["Terraform generator<br/>(.tf.json)"]
+    C --> E["docker build + push"]
+    D --> F["cube plan<br/>(read-only)"]
+    E --> G{"cube apply --yes"}
+    F --> G
+    G --> H[("Live Kubernetes cluster")]
+    H -. "annotations" .-> I["Activator<br/>(scale-to-zero 0↔1)"]
+    I -. "proxies traffic" .-> H
+```
+
 ## What's real right now
 
 - A single, fully validated `app.yml` schema (Pydantic) - one canonical
@@ -69,6 +83,31 @@ hidden behind a DSL.
   already deployed doesn't blow up with "already exists," and never
   guesses a resource's kind from its name like naive approaches do.
   `apply` always shows a real plan first; nothing happens without `--yes`.
+
+  ```mermaid
+  sequenceDiagram
+      participant You
+      participant cube as cube apply
+      participant kubectl as kubectl (read-only)
+      participant terraform
+      participant Cluster as Live cluster
+
+      You->>cube: cube apply myapp --yes
+      cube->>cube: generate .tf.json
+      loop for each resource
+          cube->>kubectl: get <kind> <name>
+          kubectl->>Cluster: read-only check
+          alt already exists
+              cube->>terraform: import (state only, no mutation)
+          else doesn't exist
+              Note over cube: leave un-imported - real create
+          end
+      end
+      cube->>terraform: plan -out=tfplan
+      terraform-->>You: show the real diff
+      cube->>terraform: apply tfplan
+      terraform->>Cluster: apply for real
+  ```
 - Scale-to-zero integration: emits the annotation contract a separate
   always-on "activator" process reads to do real 0↔1 scaling - covered by
   a contract test that round-trips through that process's actual parser,
