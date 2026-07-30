@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from kdeploy.schema.models import AppConfig
+from manifest.schema.models import AppConfig
 
 from ._common import namespace_ref
 
@@ -111,7 +111,7 @@ def build_pvcs(app: AppConfig, app_name: str) -> dict[str, Any]:
             "metadata": {
                 "name": pvc_resource_name,
                 "namespace": namespace_ref(app.namespace),
-                "labels": {"app": app_name, "storage": s.name, "managed-by": "kdeploy"},
+                "labels": {"app": app_name, "storage": s.name, "managed-by": "manifest"},
             },
             "spec": {
                 "access_modes": [s.access_mode],

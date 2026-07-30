@@ -6,7 +6,7 @@ could inject arbitrary Terraform, including a `local-exec` provisioner -
 i.e. arbitrary code execution on `terraform apply`.
 
 The new generator never has a string-templating step for app.yml-sourced
-values at all: every builder in `kdeploy.generators.terraform` assembles
+values at all: every builder in `manifest.generators.terraform` assembles
 plain Python dicts, and `json.dumps()` is the ONLY thing that ever turns that
 into `.tf.json` text (see builder.render). This test feeds adversarial
 strings into every field this task's spec calls out - env var values, secret
@@ -47,8 +47,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from kdeploy.generators.terraform import generate_terraform
-from kdeploy.schema.models import (
+from manifest.generators.terraform import generate_terraform
+from manifest.schema.models import (
     AppConfig,
     AppType,
     EnvVar,

@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from kdeploy.schema.models import AppConfig, AppType
+from manifest.schema.models import AppConfig, AppType
 
 from . import config as config_gen
 from . import networking, rbac, scaling, storage, workloads

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import shlex
 
-from kdeploy.schema.models import AppConfig, CacheOptimization, DockerHealthCheck, UserConfig
+from manifest.schema.models import AppConfig, CacheOptimization, DockerHealthCheck, UserConfig
 
 DOCKERFILE_SYNTAX_HEADER = "# syntax=docker/dockerfile:1"
 

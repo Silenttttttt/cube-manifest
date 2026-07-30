@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from kdeploy.schema.models import AppConfig, EnvVar, InitContainer, SchedulingConfig, Toleration
+from manifest.schema.models import AppConfig, EnvVar, InitContainer, SchedulingConfig, Toleration
 
 from . import config as config_gen
 from . import health_security, scaling, storage
@@ -364,7 +364,7 @@ def build_statefulset(app: AppConfig, app_name: str) -> dict[str, Any]:
                 "metadata": {
                     "name": s.name,
                     "namespace": namespace_ref(app.namespace),
-                    "labels": {"app": app_name, "storage": s.name, "managed-by": "kdeploy"},
+                    "labels": {"app": app_name, "storage": s.name, "managed-by": "manifest"},
                 },
                 "spec": {
                     "access_modes": [s.access_mode],
@@ -484,7 +484,7 @@ def build_daemonset(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": app_name,
             "namespace": namespace,
-            "labels": {"app": app_name, "type": "infrastructure", "managed-by": "kdeploy"},
+            "labels": {"app": app_name, "type": "infrastructure", "managed-by": "manifest"},
             "annotations": {
                 "cubernetes.io/description": app.description or "Infrastructure component",
                 "cubernetes.io/managed-by": "cubernetes",
@@ -494,7 +494,7 @@ def build_daemonset(app: AppConfig, app_name: str) -> dict[str, Any]:
         "spec": {
             "selector": {"match_labels": {"app": app_name}},
             "template": {
-                "metadata": {"labels": {"app": app_name, "type": "infrastructure", "managed-by": "kdeploy"}},
+                "metadata": {"labels": {"app": app_name, "type": "infrastructure", "managed-by": "manifest"}},
                 "spec": pod_spec,
             },
         },
@@ -559,7 +559,7 @@ def build_job(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": app_name,
             "namespace": namespace_ref(app.namespace),
-            "labels": {"app": app_name, "type": "job", "managed-by": "kdeploy"},
+            "labels": {"app": app_name, "type": "job", "managed-by": "manifest"},
         },
         "spec": spec,
         "wait_for_completion": False,

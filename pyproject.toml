@@ -1,5 +1,5 @@
 [project]
-name = "kdeploy"
+name = "manifest"
 version = "0.1.0"
 description = "A declarative app.yml -> Dockerfile + Terraform + build + deploy pipeline for self-hosted Kubernetes clusters"
 readme = "README.md"
@@ -24,13 +24,13 @@ dev = [
     # apps/activator/scaler.py (from the separate Cubernetes repo) and round-trip
     # annotations.py's output through its actual AppConfig.from_deployment_annotations()
     # parser, instead of hand-maintaining a second copy of the expected keys/values.
-    # kdeploy itself never imports kubernetes at runtime - pinned to match
+    # manifest itself never imports kubernetes at runtime - pinned to match
     # apps/activator/requirements.txt's kubernetes==32.0.1 exactly.
     "kubernetes==32.0.1",
 ]
 
 [project.scripts]
-kdeploy = "kdeploy.cli:app"
+manifest = "manifest.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]

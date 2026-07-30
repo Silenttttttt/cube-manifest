@@ -1,4 +1,4 @@
-"""Golden-file-style tests for kdeploy.generators.dockerfile.
+"""Golden-file-style tests for manifest.generators.dockerfile.
 
 Covers the HIGH-severity finding driving this generator's existence: the old
 dockerfile_generator.py only gave rust/go/java a real multi-stage build,
@@ -22,9 +22,9 @@ import re
 
 import pytest
 
-from kdeploy.generators.dockerfile import generate_dockerfile
-from kdeploy.generators.dockerfile.common import GIT_SSH_KEY_MOUNT_TARGET
-from kdeploy.schema.models import (
+from manifest.generators.dockerfile import generate_dockerfile
+from manifest.generators.dockerfile.common import GIT_SSH_KEY_MOUNT_TARGET
+from manifest.schema.models import (
     AppConfig,
     CacheOptimization,
     DockerConfig,

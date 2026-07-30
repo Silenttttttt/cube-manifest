@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from kdeploy.annotations import is_scale_to_zero
-from kdeploy.schema.models import AppConfig, ServiceSpec
+from manifest.annotations import is_scale_to_zero
+from manifest.schema.models import AppConfig, ServiceSpec
 
 from ._common import namespace_ref
 
@@ -85,7 +85,7 @@ def build_service(app: AppConfig, app_name: str) -> dict[str, Any]:
                 "metadata": {
                     "name": f"{app_name}-backend-service",
                     "namespace": namespace,
-                    "labels": {"app": app_name, "managed-by": "kdeploy"},
+                    "labels": {"app": app_name, "managed-by": "manifest"},
                 },
                 "spec": {"selector": {"app": app_name}, "port": backend_ports, "type": "ClusterIP"},
             },
@@ -139,7 +139,7 @@ def build_ingress(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": f"{app_name}-ingress",
             "namespace": namespace,
-            "labels": {"app": app_name, "managed-by": "kdeploy"},
+            "labels": {"app": app_name, "managed-by": "manifest"},
         },
         "spec": {
             "ingress_class_name": "traefik",

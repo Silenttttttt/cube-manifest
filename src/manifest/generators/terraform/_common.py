@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from kdeploy.schema.models import AppConfig, AppType, DockerConfig
+from manifest.schema.models import AppConfig, AppType, DockerConfig
 
 # Namespaces this tool's own root module declares as managed
 # `kubernetes_namespace` resources - matches the old generator's

@@ -1,7 +1,7 @@
 """HorizontalPodAutoscaler dict-builder, plus the glue that stamps a
 scale-to-zero app's activator annotations/label/ignore_changes onto its
 Deployment (workloads.py merges this in - the actual annotation *values* are
-built by `kdeploy.annotations.build_activator_annotations`, owned by a
+built by `manifest.annotations.build_activator_annotations`, owned by a
 parallel task; this module only ever consumes that function).
 """
 
@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from kdeploy.annotations import (
+from manifest.annotations import (
     LAST_ACTIVE_ANNOTATION,
     MANAGED_LABEL_KEY,
     build_activator_annotations,
     is_scale_to_zero,
 )
-from kdeploy.schema.models import AppConfig
+from manifest.schema.models import AppConfig
 
 from ._common import namespace_ref
 
@@ -44,7 +44,7 @@ def build_hpa(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {
             "name": f"{app_name}-hpa",
             "namespace": namespace,
-            "labels": {"app": app_name, "managed-by": "kdeploy"},
+            "labels": {"app": app_name, "managed-by": "manifest"},
         },
         "spec": {
             "scale_target_ref": {"api_version": "apps/v1", "kind": "Deployment", "name": app_name},

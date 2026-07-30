@@ -1,4 +1,4 @@
-"""Contract test: kdeploy.annotations.build_activator_annotations() must
+"""Contract test: manifest.annotations.build_activator_annotations() must
 produce exactly what the REAL, separately-deployed activator process
 (Cubernetes/apps/activator/scaler.py::AppConfig.from_deployment_annotations)
 expects to parse back.
@@ -19,8 +19,8 @@ module is loaded directly via importlib (by file path, since
 apps/activator/ is a separate repo/sibling project with no installed
 package name) - no live k8s connection, no fallback to a hand-maintained
 comparison needed. `kubernetes` itself is a test-only dev dependency of
-kdeploy (see pyproject.toml), pinned to match
-apps/activator/requirements.txt's kubernetes==32.0.1 exactly; kdeploy's own
+manifest (see pyproject.toml), pinned to match
+apps/activator/requirements.txt's kubernetes==32.0.1 exactly; manifest's own
 runtime code never imports it.
 """
 
@@ -32,8 +32,8 @@ from pathlib import Path
 
 import pytest
 
-from kdeploy.annotations import build_activator_annotations, is_scale_to_zero
-from kdeploy.schema.models import (
+from manifest.annotations import build_activator_annotations, is_scale_to_zero
+from manifest.schema.models import (
     Activation,
     ActivationType,
     AppConfig,
