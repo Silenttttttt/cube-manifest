@@ -1,0 +1,44 @@
+[project]
+name = "kdeploy"
+version = "0.1.0"
+description = "A declarative app.yml -> Dockerfile + Terraform + build + deploy pipeline for self-hosted Kubernetes clusters"
+readme = "README.md"
+authors = [
+    { name = "Muni Besen", email = "munibesen@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9",
+    "PyYAML>=6.0",
+    "typer>=0.15",
+    "rich>=13.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "hypothesis>=6.115",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    # Test-only: lets tests/unit/test_activator_contract.py import the real
+    # apps/activator/scaler.py (from the separate Cubernetes repo) and round-trip
+    # annotations.py's output through its actual AppConfig.from_deployment_annotations()
+    # parser, instead of hand-maintaining a second copy of the expected keys/values.
+    # kdeploy itself never imports kubernetes at runtime - pinned to match
+    # apps/activator/requirements.txt's kubernetes==32.0.1 exactly.
+    "kubernetes==32.0.1",
+]
+
+[project.scripts]
+kdeploy = "kdeploy.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.25,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
