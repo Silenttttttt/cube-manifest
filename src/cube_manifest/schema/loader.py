@@ -3,7 +3,14 @@ app.yml file. Every other module (generators, build orchestrator, deploy
 orchestrator, plugins) receives an already-validated AppConfig - never a raw
 dict - which is what retires the old system's 4+ independent yaml.safe_load
 call sites that let the schema silently drift (e.g. node_port ending up in
-two incompatible shapes across real apps)."""
+two incompatible shapes across real apps).
+
+This is also the only place `secrets.py`'s Fernet decryption ever runs -
+by the time an AppConfig exists, `.secrets` is always plaintext. Every
+downstream consumer (generators, deploy.py) needs zero awareness that an
+`ENC[...]` format exists at all, closing the old system's gap where
+terraform_generator.py would silently emit literal ciphertext as a k8s
+Secret value if you ever bypassed deploy.sh's separate decrypt step."""
 
 from __future__ import annotations
 
@@ -12,6 +19,8 @@ from typing import Any
 
 import yaml
 from pydantic import ValidationError
+
+from cube_manifest.secrets import decrypt_secrets
 
 from .compat import normalize
 from .errors import ConfigError
@@ -35,6 +44,11 @@ def load_app_config(path: Path) -> AppConfig:
     without knowing which file caused it."""
     raw = load_raw(path)
     raw = normalize(raw)
+    if raw.get("secrets"):
+        try:
+            raw["secrets"] = decrypt_secrets(raw["secrets"])
+        except (FileNotFoundError, ValueError) as exc:
+            raise ConfigError(path, f"secrets: {exc}") from exc
     try:
         return AppConfig(**raw)
     except ValidationError as exc:

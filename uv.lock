@@ -285,6 +285,7 @@ name = "cube-manifest"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -302,6 +303,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=42.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.115" },
     { name = "kubernetes", marker = "extra == 'dev'", specifier = "==32.0.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },

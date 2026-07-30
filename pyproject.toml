@@ -12,6 +12,9 @@ dependencies = [
     "PyYAML>=6.0",
     "typer>=0.15",
     "rich>=13.9",
+    # Fernet decryption bridge for the old ENC[...] secrets format - see
+    # secrets.py. Will drop once real apps migrate to sops/age.
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
