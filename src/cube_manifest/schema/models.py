@@ -45,6 +45,11 @@ class AppType(str, Enum):
     microservice = "microservice"
     job = "job"
     infrastructure = "infrastructure"
+    # A real physical/external device or host that can never run as a pod in
+    # this cluster (e.g. an ESP32 on the LAN) - gets a selector-less Service +
+    # a hand-specified Endpoints resource instead of a Deployment, via the
+    # standard k8s "Service without selector" pattern. See ExternalEndpoint.
+    external = "external"
 
 
 class ServiceType(str, Enum):
@@ -689,6 +694,26 @@ class RegistryConfig(BaseModel):
     health: RegistryHealth | None = None
 
 
+class ExternalEndpointPort(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    port: int
+    protocol: str = "TCP"  # always TCP here - no UDP external endpoint has ever been needed
+
+
+class ExternalEndpoint(BaseModel):
+    """`app_type: external`'s only real config: a bare LAN host (an ESP32, a
+    NAS, any device that can never run as a pod in this cluster) plus the
+    ports it really listens on. The generator turns this into the standard
+    k8s "Service without selector" pattern - a selector-less Service plus a
+    hand-specified Endpoints resource pointing straight at `host` - so the
+    device gets a clean in-cluster DNS name without ever being a workload."""
+
+    model_config = ConfigDict(extra="forbid")
+    host: str
+    ports: list[ExternalEndpointPort]
+
+
 class AppConfig(BaseModel):
     """The root schema. `extra='forbid'` deliberately - an unrecognized field
     in app.yml (typo, stale key from a schema migration) fails loudly at
@@ -751,6 +776,7 @@ class AppConfig(BaseModel):
     container_security_context: SecurityContext | None = None
     service: ServiceSpec | None = None
     registry_config: RegistryConfig | None = None
+    external_endpoint: ExternalEndpoint | None = None
 
     @field_validator("name")
     @classmethod
@@ -769,6 +795,22 @@ class AppConfig(BaseModel):
     def microservice_config_required_for_microservice(self) -> AppConfig:
         if self.app_type == AppType.microservice and self.microservice_config is None:
             self.microservice_config = MicroserviceConfig()
+        return self
+
+    @model_validator(mode="after")
+    def external_endpoint_required_for_external(self) -> AppConfig:
+        # Unlike microservice_config above, there's no sane default to
+        # auto-fill here (host has no meaningful default) - app.yml must
+        # supply it explicitly.
+        if self.app_type == AppType.external and self.external_endpoint is None:
+            raise ValueError("app_type is 'external' but external_endpoint is not set")
+        # Deliberately NOT rejecting docker_config/scaling/storage/resources
+        # etc. when app_type is external - matching this codebase's existing
+        # style for the other non-pod-backed app_type (microservice, whose
+        # generator also never reads docker_config/storage/scaling/resources
+        # even though the schema still accepts them). The generator simply
+        # never calls the pod/Deployment/PVC/HPA builders for this app_type,
+        # the same way it already doesn't for microservice/job.
         return self
 
     @model_validator(mode="after")

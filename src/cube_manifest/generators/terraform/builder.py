@@ -96,6 +96,21 @@ def _generate_job(app: AppConfig, app_name: str) -> dict[str, Any]:
     )
 
 
+def _generate_external(app: AppConfig, app_name: str) -> dict[str, Any]:
+    """`app_type: external` - a real device that can never run as a pod in
+    this cluster (see schema.models.ExternalEndpoint). Deliberately skips
+    every pod/Deployment/PVC/HPA builder (Secret/RBAC/ConfigMap too - none of
+    those apply to a workload that never exists) and emits only the
+    selector-less Service + matching Endpoints pair, plus an Ingress if the
+    app.yml wants a friendly hostname for one of the device's ports (the
+    Ingress builder only ever references the Service by name+port, so a
+    selector-less backend Service works for it unmodified)."""
+    return merge_fragments(
+        networking.build_external_service_and_endpoints(app, app_name),
+        networking.build_ingress(app, app_name),
+    )
+
+
 def generate_terraform(app: AppConfig) -> dict[str, Any]:
     """Returns the full `.tf.json` document (a dict with a top-level
     `resource` key) for one app, or `{}` if the app is disabled or produces
@@ -111,6 +126,8 @@ def generate_terraform(app: AppConfig) -> dict[str, Any]:
         return _generate_job(app, app_name)
     if app.app_type == AppType.infrastructure:
         return _generate_infrastructure(app, app_name)
+    if app.app_type == AppType.external:
+        return _generate_external(app, app_name)
     return _generate_service(app, app_name)
 
 

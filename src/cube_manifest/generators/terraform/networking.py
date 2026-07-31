@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from cube_manifest.annotations import is_scale_to_zero
-from cube_manifest.schema.models import AppConfig, ServiceSpec
+from cube_manifest.schema.models import AppConfig, ExternalEndpoint, ServiceSpec
 
 from ._common import namespace_ref
 
@@ -99,6 +99,57 @@ def build_service(app: AppConfig, app_name: str) -> dict[str, Any]:
         "metadata": {"name": f"{app_name}-service", "namespace": namespace, "labels": {"app": app_name}},
         "spec": {"selector": {"app": app_name}, "port": ports, "type": service_type_value},
     }}}}
+
+
+def build_external_service_and_endpoints(app: AppConfig, app_name: str) -> dict[str, Any]:
+    """`app_type: external`'s only real resources: the standard k8s "Service
+    without selector" pattern for a real device that can never run as a pod
+    in this cluster (see schema.models.ExternalEndpoint). A selector-less
+    Service gives the device a clean in-cluster DNS name
+    (`<app>-service.<namespace>.svc.cluster.local`); the matching Endpoints
+    resource (same name as the Service - required by the k8s API for the two
+    to be linked) is what actually tells kube-proxy where to route traffic,
+    since there's no pod label for a Service selector to match here.
+
+    All of this app's real ports live in ONE Endpoints subset, matching one
+    address (the device's `host`) - Kubernetes applies every port in a
+    subset to every address in that same subset, which is exactly what's
+    wanted for a single external host exposing multiple distinct ports.
+    """
+    if not app.enabled:
+        return {}
+
+    endpoint: ExternalEndpoint | None = app.external_endpoint
+    if endpoint is None:
+        return {}
+
+    namespace = namespace_ref(app.namespace)
+    service_name = f"{app_name}-service"
+
+    service_ports = [
+        {"name": p.name, "port": p.port, "target_port": p.port, "protocol": p.protocol} for p in endpoint.ports
+    ]
+    endpoint_ports = [{"name": p.name, "port": p.port, "protocol": p.protocol} for p in endpoint.ports]
+
+    return {
+        "resource": {
+            "kubernetes_service": {
+                app_name: {
+                    "metadata": {"name": service_name, "namespace": namespace, "labels": {"app": app_name}},
+                    "spec": {"port": service_ports, "type": "ClusterIP"},
+                }
+            },
+            "kubernetes_endpoints": {
+                app_name: {
+                    "metadata": {"name": service_name, "namespace": namespace, "labels": {"app": app_name}},
+                    "subset": {
+                        "address": {"ip": endpoint.host},
+                        "port": endpoint_ports,
+                    },
+                }
+            },
+        }
+    }
 
 
 def build_headless_service(app: AppConfig, app_name: str) -> dict[str, Any]:

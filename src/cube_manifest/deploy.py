@@ -35,6 +35,7 @@ KUBECTL_KIND: dict[str, tuple[str, bool]] = {
     "kubernetes_stateful_set": ("statefulset", True),
     "kubernetes_daemonset": ("daemonset", True),
     "kubernetes_service": ("service", True),
+    "kubernetes_endpoints": ("endpoints", True),
     "kubernetes_config_map": ("configmap", True),
     "kubernetes_secret": ("secret", True),
     "kubernetes_service_account": ("serviceaccount", True),
