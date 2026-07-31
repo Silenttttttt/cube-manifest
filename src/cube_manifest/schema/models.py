@@ -70,6 +70,16 @@ class ResourceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     cpu: str
     memory: str
+    # The cluster's one real extended resource (see nvidia-device-plugin,
+    # which advertises `nvidia.com/gpu` on the one node that has one) - a
+    # plain string count (e.g. "1"), matching how k8s itself represents
+    # extended resource quantities. Confirmed nothing in the 26 real app.yml
+    # files predating this used a GPU resource at all - `resources.limits`/
+    # `requests` only ever emitted cpu/memory (see workloads.py), so this is
+    # new, not a rename of an existing (dead) field. Left unset (None) for
+    # every app that doesn't request a GPU - the generator only emits the
+    # `nvidia.com/gpu` key when this is actually set.
+    gpu: str | None = None
 
 
 class Resources(BaseModel):

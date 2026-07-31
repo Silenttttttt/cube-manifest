@@ -185,11 +185,29 @@ def _policy_hash(image_ref: str, pull_policy: str) -> str:
 
 
 def _build_strategy(app: AppConfig) -> dict[str, Any]:
-    """Ported from `_build_deployment_strategy` - only ever emits a block for
-    `type: RollingUpdate`; `type: Recreate` silently produces nothing, a real
-    (if probably unintended) gap in the old generator preserved here too."""
+    """Ported from `_build_deployment_strategy` for the `RollingUpdate` case.
+
+    `type: Recreate` now actually emits `{"type": "Recreate"}` instead of the
+    old generator's silently-preserved no-op gap (confirmed nothing in the
+    26 pre-existing app.yml files ever set `deployment_strategy.type:
+    Recreate` - grepped for real - so fixing this changes no currently
+    deployed app's behavior). This was a real, not just theoretical, gap:
+    a single-replica Deployment requesting the cluster's only
+    `nvidia.com/gpu` unit deadlocks under the default/RollingUpdate
+    behavior (Kubernetes' own default surge tries to schedule a second,
+    new pod ALONGSIDE the still-running old one before tearing it down -
+    impossible with only one GPU in the whole cluster to go around, so the
+    new pod sits Pending forever and the rollout times out) - confirmed by
+    reproducing it live against meeting-transcriber. `Recreate` (old pod
+    fully terminated, freeing the GPU, before the new one is even created)
+    is the correct, standard fix for exactly this "scarce, non-shareable
+    resource" shape, and app.yml needs a way to actually request it."""
     ds = app.deployment_strategy
-    if ds is None or ds.type != "RollingUpdate":
+    if ds is None:
+        return {}
+    if ds.type == "Recreate":
+        return {"type": "Recreate"}
+    if ds.type != "RollingUpdate":
         return {}
     ru = ds.rolling_update
     max_unavailable = ru.max_unavailable if ru is not None else 1
@@ -209,6 +227,20 @@ def _build_pod_extras(app: AppConfig) -> dict[str, Any]:
     pod_sc = health_security.build_pod_security_context(app.security_context)
     if pod_sc:
         extra["security_context"] = pod_sc
+    # infrastructure_config.runtime_class_name previously only ever reached
+    # a pod spec via build_daemonset (nvidia-device-plugin's own real use).
+    # A regular Deployment/StatefulSet/Job requesting a GPU resource needs
+    # this too - confirmed live against this cluster: a `RuntimeClass
+    # nvidia` object exists separately from the default runc runtime
+    # (`kubectl get runtimeclass`), so a pod that only declares
+    # `resources.limits: {gpu: "1"}` gets scheduled onto the GPU node and
+    # satisfies the resource accounting, but never actually gets a working
+    # NVIDIA device inside the container unless it also opts into this
+    # RuntimeClass explicitly. Reusing the existing infrastructure_config
+    # field (rather than adding a new one) matches how the schema already
+    # models this exact concept for DaemonSets.
+    if app.infrastructure_config.runtime_class_name:
+        extra["runtime_class_name"] = app.infrastructure_config.runtime_class_name
     return extra
 
 
@@ -258,10 +290,17 @@ def _build_container_spec(app: AppConfig, app_name: str, image_ref: str, image_p
     mounts = storage.build_volume_mounts(app)
     if mounts:
         container["volume_mount"] = mounts
-    container["resources"] = {
-        "limits": {"cpu": resources.limits.cpu, "memory": resources.limits.memory},
-        "requests": {"cpu": resources.requests.cpu, "memory": resources.requests.memory},
-    }
+    limits: dict[str, Any] = {"cpu": resources.limits.cpu, "memory": resources.limits.memory}
+    requests: dict[str, Any] = {"cpu": resources.requests.cpu, "memory": resources.requests.memory}
+    # Extended resource (nvidia.com/gpu) - only emitted when app.yml actually
+    # sets it. k8s treats requests as defaulting to the limit for extended
+    # resources, so most real app.yml files will only ever set this under
+    # `limits`, but requests.gpu is honored too if set explicitly.
+    if resources.limits.gpu:
+        limits["nvidia.com/gpu"] = resources.limits.gpu
+    if resources.requests.gpu:
+        requests["nvidia.com/gpu"] = resources.requests.gpu
+    container["resources"] = {"limits": limits, "requests": requests}
     container.update(health_security.build_probes(app.health_check))
     sc = health_security.build_container_security_context(app.security_context)
     if sc:
