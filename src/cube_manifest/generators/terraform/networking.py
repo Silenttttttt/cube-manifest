@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from cube_manifest.annotations import is_scale_to_zero
-from cube_manifest.schema.models import AppConfig, ExternalEndpoint, ServiceSpec
+from cube_manifest.schema.models import AppConfig, ExternalEndpoint, ServiceSpec, ServiceType
 
 from ._common import namespace_ref
 
@@ -115,6 +115,18 @@ def build_external_service_and_endpoints(app: AppConfig, app_name: str) -> dict[
     address (the device's `host`) - Kubernetes applies every port in a
     subset to every address in that same subset, which is exactly what's
     wanted for a single external host exposing multiple distinct ports.
+
+    Optionally, the top-level `service_type`/`port`/`node_port` fields (the
+    same fields other app_types use for their single-Service NodePort case -
+    see `_legacy_single_port`) can additionally NodePort-expose exactly ONE
+    of this device's ports - e.g. fin-esp's web UI (port 80) needs to be
+    reachable from outside the LAN (via the VPS over Tailscale), but its
+    raw device-protocol ports (mic/media) don't. Since a k8s Service's `type`
+    applies to the whole Service (every port in a NodePort-type Service gets
+    a node port), this is done as a SEPARATE, second Service+Endpoints pair
+    (`<app>-nodeport-service`) carrying only the matched port - the original
+    selector-less Service/Endpoints above (and anything pointing at it, e.g.
+    this app's own Ingress) is completely untouched.
     """
     if not app.enabled:
         return {}
@@ -131,7 +143,7 @@ def build_external_service_and_endpoints(app: AppConfig, app_name: str) -> dict[
     ]
     endpoint_ports = [{"name": p.name, "port": p.port, "protocol": p.protocol} for p in endpoint.ports]
 
-    return {
+    resources: dict[str, Any] = {
         "resource": {
             "kubernetes_service": {
                 app_name: {
@@ -150,6 +162,42 @@ def build_external_service_and_endpoints(app: AppConfig, app_name: str) -> dict[
             },
         }
     }
+
+    if app.service_type == ServiceType.node_port:
+        if app.node_port is None:
+            raise ValueError(f"NodePort service '{app.name}' must have an explicit 'node_port' field in app.yml")
+        matches = [p for p in endpoint.ports if p.port == app.port]
+        if not matches:
+            raise ValueError(
+                f"external app '{app.name}' has service_type NodePort for port {app.port}, but no "
+                f"external_endpoint.ports entry has port {app.port}"
+            )
+        node_port_port = matches[0]
+        nodeport_service_name = f"{app_name}-nodeport-service"
+        resources["resource"]["kubernetes_service"][f"{app_name}_nodeport"] = {
+            "metadata": {"name": nodeport_service_name, "namespace": namespace, "labels": {"app": app_name}},
+            "spec": {
+                "port": [
+                    {
+                        "name": node_port_port.name,
+                        "port": node_port_port.port,
+                        "target_port": node_port_port.port,
+                        "protocol": node_port_port.protocol,
+                        "node_port": app.node_port,
+                    }
+                ],
+                "type": "NodePort",
+            },
+        }
+        resources["resource"]["kubernetes_endpoints"][f"{app_name}_nodeport"] = {
+            "metadata": {"name": nodeport_service_name, "namespace": namespace, "labels": {"app": app_name}},
+            "subset": {
+                "address": {"ip": endpoint.host},
+                "port": [{"name": node_port_port.name, "port": node_port_port.port, "protocol": node_port_port.protocol}],
+            },
+        }
+
+    return resources
 
 
 def build_headless_service(app: AppConfig, app_name: str) -> dict[str, Any]:
