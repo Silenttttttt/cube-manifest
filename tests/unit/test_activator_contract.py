@@ -37,6 +37,7 @@ from cube_manifest.schema.models import (
     Activation,
     ActivationType,
     AppConfig,
+    ConnectionCheck,
     DockerConfig,
     QueueRef,
     Scaling,
@@ -151,18 +152,47 @@ def fixture_write_protected() -> AppConfig:
     )
 
 
+def fixture_connection_check() -> AppConfig:
+    """activation.type: http with connection_check set - chat-server's real
+    shape (see apps/chat-server/app.yml): scale-to-zero gated on a live
+    connection count the app itself reports, not just generic idle-timeout,
+    since it holds long-lived WebSocket connections a plain traffic-based
+    idle check can't see."""
+    return _minimal_app(
+        "chat-server",
+        port=8090,
+        scaling=Scaling(
+            min_replicas=0,
+            idle_timeout_seconds=300,
+            activation=Activation(
+                type=ActivationType.http,
+                connection_check=ConnectionCheck(path="/internal/ws-connections", port=8090),
+            ),
+        ),
+    )
+
+
 ALL_FIXTURES = [
     fixture_no_scaling_block,
     fixture_http_min_zero,
     fixture_tcp_extra_ports,
     fixture_queue_depth,
     fixture_write_protected,
+    fixture_connection_check,
 ]
 
 
 # ---------------------------------------------------------------------------
 # Non-scale-to-zero app: no annotations at all
 # ---------------------------------------------------------------------------
+
+def test_connection_check_rejected_for_non_http_activation():
+    """connection_check only makes sense for activation.type: http - the
+    tcp/queue_depth proxy models are structurally different and have no
+    equivalent "poll the app's own endpoint" mechanism at all."""
+    with pytest.raises(ValueError, match="connection_check"):
+        Activation(type=ActivationType.tcp, connection_check=ConnectionCheck(path="/x"))
+
 
 def test_no_scaling_block_produces_no_annotations():
     app = fixture_no_scaling_block()
@@ -187,12 +217,15 @@ EXPECTED_KEYS = {
     "activator.cubernetes.io/queue-host",
     "activator.cubernetes.io/write-protected",
     "activator.cubernetes.io/depends-on",
+    "activator.cubernetes.io/connection-check-path",
+    "activator.cubernetes.io/connection-check-json-key",
+    "activator.cubernetes.io/connection-check-port",
 }
 
 
 @pytest.mark.parametrize(
     "make_app",
-    [fixture_http_min_zero, fixture_tcp_extra_ports, fixture_queue_depth, fixture_write_protected],
+    [fixture_http_min_zero, fixture_tcp_extra_ports, fixture_queue_depth, fixture_write_protected, fixture_connection_check],
 )
 def test_exact_key_set(make_app):
     app = make_app()
@@ -263,6 +296,32 @@ def test_round_trip_write_protected():
     assert parsed.backend_port == 9090  # top-level port fallback (no exposed_ports/service.ports/activation.port)
     assert parsed.depends_on == ("postgres", "rabbitmq")
     assert parsed.write_protected is True
+
+
+def test_round_trip_connection_check():
+    app = fixture_connection_check()
+    annotations = build_activator_annotations(app)
+    parsed = RealAppConfig.from_deployment_annotations(app.name, annotations)
+
+    assert parsed.activation_type == "http"
+    assert parsed.backend_port == 8090
+    assert parsed.connection_check_path == "/internal/ws-connections"
+    assert parsed.connection_check_json_key == "activeConnections"
+    assert parsed.connection_check_port == 8090
+    assert parsed.idle_timeout_seconds == 300
+
+
+def test_round_trip_no_connection_check_falls_back_to_disabled():
+    """A fixture that never declares connection_check must round-trip to
+    the real parser's own "not configured" defaults - proving the new
+    feature is additive and doesn't change any existing app's behavior."""
+    app = fixture_http_min_zero()
+    annotations = build_activator_annotations(app)
+    parsed = RealAppConfig.from_deployment_annotations(app.name, annotations)
+
+    assert parsed.connection_check_path == ""
+    assert parsed.connection_check_json_key == "activeConnections"
+    assert parsed.connection_check_port is None
 
 
 @pytest.mark.parametrize("make_app", ALL_FIXTURES)

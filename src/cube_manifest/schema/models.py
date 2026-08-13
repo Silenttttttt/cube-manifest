@@ -460,17 +460,42 @@ class QueueRef(BaseModel):
     host: str
 
 
+class ConnectionCheck(BaseModel):
+    """Opt-in extra gate on the activator's scale-down decision, for `http`
+    apps that hold long-lived connections (WebSockets) a generic idle-
+    timeout can't see. When set, the activator polls `GET
+    http://<backend-service>:<port or activation.port>/<path>` before
+    scaling to 0, parses the response as JSON, and reads `json_key` as an
+    integer connection count - a value greater than 0 blocks scale-down
+    outright, REGARDLESS of how long ago the last real request was. A
+    failed/malformed poll is treated as "unknown," same as the queue_depth
+    mechanism's own RabbitMQ poll - never as "confirmed empty."
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    json_key: str = "activeConnections"
+    port: int | None = None
+
+
 class Activation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: ActivationType = ActivationType.http
     port: int | None = None
     extra_ports: list[int] = Field(default_factory=list)
     queue: QueueRef | None = None
+    connection_check: ConnectionCheck | None = None
 
     @model_validator(mode="after")
     def queue_required_for_queue_depth(self):
         if self.type == ActivationType.queue_depth and self.queue is None:
             raise ValueError("scaling.activation.type is queue_depth but scaling.activation.queue is not set")
+        return self
+
+    @model_validator(mode="after")
+    def connection_check_only_for_http(self):
+        if self.connection_check is not None and self.type != ActivationType.http:
+            raise ValueError("scaling.activation.connection_check is only meaningful when scaling.activation.type is http")
         return self
 
 

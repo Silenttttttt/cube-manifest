@@ -81,7 +81,7 @@ def build_activator_annotations(app: AppConfig) -> dict[str, str]:
     ``.get(key, default)`` fallbacks are what would apply if such a
     Deployment were ever (incorrectly) treated as activator-managed.
 
-    For a scale-to-zero app, all 11 keys ``scaler.py`` parses are ALWAYS
+    For a scale-to-zero app, all 14 keys ``scaler.py`` parses are ALWAYS
     present, even when the underlying value is the empty string (e.g.
     extra-backend-ports / queue-name / depends-on for an app that sets no
     extra ports / no queue / no dependencies) - this matches the old
@@ -122,6 +122,15 @@ def build_activator_annotations(app: AppConfig) -> dict[str, str]:
         queue_name = ""
         queue_host = "rabbitmq-service"
 
+    if activation is not None and activation.connection_check is not None:
+        connection_check_path = activation.connection_check.path
+        connection_check_json_key = activation.connection_check.json_key
+        connection_check_port = str(activation.connection_check.port) if activation.connection_check.port is not None else ""
+    else:
+        connection_check_path = ""
+        connection_check_json_key = "activeConnections"
+        connection_check_port = ""
+
     depends_on_str = ",".join(app.dependencies)
 
     write_protected = "true" if scaling.write_protected else "false"
@@ -138,4 +147,7 @@ def build_activator_annotations(app: AppConfig) -> dict[str, str]:
         f"{ANNOTATION_PREFIX}/queue-host": queue_host,
         f"{ANNOTATION_PREFIX}/write-protected": write_protected,
         f"{ANNOTATION_PREFIX}/depends-on": depends_on_str,
+        f"{ANNOTATION_PREFIX}/connection-check-path": connection_check_path,
+        f"{ANNOTATION_PREFIX}/connection-check-json-key": connection_check_json_key,
+        f"{ANNOTATION_PREFIX}/connection-check-port": connection_check_port,
     }
