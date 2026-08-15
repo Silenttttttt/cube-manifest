@@ -28,6 +28,8 @@ cube generate terraform hello    # see the .tf.json it would apply
 cube build hello                 # real docker build + push to your registry
 cube plan hello                  # real `terraform plan` against your cluster, read-only
 cube apply hello --yes           # actually apply it
+cube ship hello --yes            # build + apply + rollout-restart, all in one - the common case
+                                  # for shipping a real code change to an already-deployed app
 ```
 
 ## Why this exists
@@ -185,6 +187,17 @@ cube build <app> [--no-push] [--no-prewarm]  # real docker build, tag as :latest
                                     # every node's image cache (unless --no-prewarm)
 cube plan <app>                    # real terraform plan against your cluster - read-only
 cube apply <app> [--yes]           # apply it for real - requires --yes to actually touch anything
+cube ship <app> [--yes] [--no-restart] [--no-push] [--no-prewarm]
+                                    # build + apply + rollout-restart, composed into one command -
+                                    # the common case of actually shipping a real code change to an
+                                    # already-deployed app (reapplying an unchanged :latest tag never
+                                    # forces already-running pods to repull it, so a bare `apply` on
+                                    # its own isn't enough after a code change). build/plan/apply stay
+                                    # separate, independently-useful primitives - `ship` doesn't
+                                    # replace them, it's just those three run back-to-back. Same --yes
+                                    # gate as `apply`: without it, still builds+pushes for real (like
+                                    # `build` always does) and shows the plan, but never applies or
+                                    # restarts. --no-restart for a config-only change with no new image.
 ```
 
 All commands take `--apps-dir` to point at wherever your `apps/<name>/app.yml`
