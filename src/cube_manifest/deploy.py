@@ -224,3 +224,61 @@ def real_apply(workdir: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+@dataclass
+class RestartResult:
+    kind: str | None  # None means "no restartable workload" (job/cronjob/external) - not a failure
+    output: str
+    returncode: int
+
+    @property
+    def ok(self) -> bool:
+        return self.kind is None or self.returncode == 0
+
+
+def restart_and_wait(app: AppConfig, kubeconfig: Path, *, timeout: str = "90s") -> RestartResult:
+    """Re-applying an unchanged `:latest` tag never forces an already-running
+    pod to repull it - Terraform sees no diff on the image field and reports
+    nothing to change, but the registry's actual image content did change.
+    This is the step that makes a freshly built image actually take effect:
+    a real `kubectl rollout restart` on whatever workload kind this app's own
+    Terraform generates, followed by `rollout status` to block until every
+    replica is back up on the new image (or the timeout is hit).
+
+    Figures out the workload kind from the generated Terraform itself rather
+    than assuming Deployment - `job`/`cronjob`-backed apps have nothing to
+    roll (a Job's pods run to completion once, they're not a live target for
+    "restart"), and `external` apps have no workload at all. Both return a
+    no-op RestartResult(kind=None, ok=True) rather than erroring, since
+    "nothing to restart" is the correct, expected outcome for those types,
+    not a failure of this step."""
+    tf_doc = generate_terraform(app)
+    resources = tf_doc.get("resource", {})
+    if "kubernetes_deployment" in resources:
+        kind = "deployment"
+    elif "kubernetes_stateful_set" in resources:
+        kind = "statefulset"
+    elif "kubernetes_daemonset" in resources:
+        kind = "daemonset"
+    else:
+        return RestartResult(kind=None, output="", returncode=0)
+
+    base = ["kubectl", "--kubeconfig", str(kubeconfig), "-n", app.namespace]
+    restart = subprocess.run(
+        base + ["rollout", "restart", f"{kind}/{app.name}"], capture_output=True, text=True, check=False
+    )
+    if restart.returncode != 0:
+        return RestartResult(kind=kind, output=restart.stdout + restart.stderr, returncode=restart.returncode)
+
+    status = subprocess.run(
+        base + ["rollout", "status", f"{kind}/{app.name}", f"--timeout={timeout}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return RestartResult(
+        kind=kind,
+        output=restart.stdout + restart.stderr + status.stdout + status.stderr,
+        returncode=status.returncode,
+    )

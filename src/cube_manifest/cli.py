@@ -1,12 +1,17 @@
-"""cube-manifest's CLI: list/validate/generate/build/plan/apply. `apply` is
-the only command that can mutate the real cluster, and only with `--yes`
+"""cube-manifest's CLI: list/validate/generate/build/plan/apply/ship. `apply`
+is the only command that can mutate the real cluster, and only with `--yes`
 after a real plan (with existing resources imported first) has been shown.
 `build` is the only command that touches a container registry - it builds
 the app's real image and (by default) pushes `<registry>/<app>:latest` (and
 `:previous`, retagged from whatever was already there, if anything was).
 `apply` still assumes that tag already exists at the registry by the time
-it runs - `build` and `apply` are separate, deliberately sequenced steps,
-not fused into one command."""
+it runs - `build` and `apply` are separate primitives, each independently
+useful (e.g. `build --no-push` to just check a Dockerfile compiles, or
+`apply` alone after a config-only change with no new image). `ship` is the
+composed convenience command for the common case of actually shipping a
+real code change: build, apply, and a rollout restart (needed because
+reapplying an unchanged `:latest` tag never forces already-running pods to
+repull it) - all in one command, gated on the same `--yes`."""
 
 from __future__ import annotations
 
@@ -351,6 +356,132 @@ def apply_cmd(
 
     if not keep:
         shutil.rmtree(result.workdir, ignore_errors=True)
+
+
+@app.command("ship")
+def ship_cmd(
+    app_name: str = typer.Argument(..., metavar="APP"),
+    apps_dir: Path | None = typer.Option(None, "--apps-dir"),
+    kubeconfig: Path = typer.Option(Path.home() / ".kube" / "config", "--kubeconfig"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Actually apply and restart. Without this: still builds+pushes the real image (build has no "
+        "confirmation gate of its own, same as running `build` directly) and shows the apply plan, but "
+        "never touches the cluster - re-run with --yes to actually apply and roll it.",
+    ),
+    push: bool = typer.Option(True, "--push/--no-push", help="Forwarded to the build step."),
+    prewarm: bool = typer.Option(True, "--prewarm/--no-prewarm", help="Forwarded to the build step."),
+    restart: bool = typer.Option(
+        True,
+        "--restart/--no-restart",
+        help="After a successful apply, force a rollout restart and wait for it to finish - reapplying "
+        "an unchanged `:latest` tag never forces already-running pods to repull it. --no-restart if this "
+        "app.yml change has no new image (e.g. a bare replica-count/config edit).",
+    ),
+    keep: bool = typer.Option(False, "--keep", help="Keep the temporary terraform working directory instead of deleting it."),
+) -> None:
+    """The full 'ship this change for real' sequence in one command: build
+    the image and push it, apply the Terraform (only if --yes), then force a
+    rollout restart and wait for it to finish. This doesn't replace
+    `build`/`plan`/`apply` - it's composed from exactly those same
+    primitives, for the common case of running all three back-to-back that
+    every real code change to an already-deployed app needs (a bare `apply`
+    on an unchanged image tag never forces existing pods to repull it)."""
+    d = _apps_dir(apps_dir)
+    path = _resolve_one(d, app_name)
+    cfg = _load_or_exit(path)
+    _require_terraform()
+
+    console.print(f"[bold]1/3 Building {app_name} -> {build_mod.registry_tag(app_name, 'latest')}[/bold]")
+    if cfg.external_repo is not None:
+        console.print(
+            f"[dim]external_repo: {cfg.external_repo.url} @ {cfg.external_repo.branch} "
+            f"(path={cfg.external_repo.path or '.'})[/dim]"
+        )
+    try:
+        build_result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm)
+    except build_mod.BuildError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    if build_result.rolled_back:
+        console.print(f"[green]{build_result.rollback_message}[/green]")
+    if not build_result.build_ok:
+        err_console.print(build_result.build_output)
+        err_console.print(f"[red]Build failed: {build_result.latest_tag}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Built {build_result.latest_tag}[/green]")
+
+    if push:
+        if not build_result.pushed_latest:
+            err_console.print(build_result.push_output)
+            err_console.print(f"[red]Push failed: {build_result.latest_tag}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]Pushed {build_result.latest_tag}[/green]")
+    else:
+        console.print("[yellow]--no-push: built locally only - apply below will still assume the tag exists at the registry.[/yellow]")
+
+    console.print(f"\n[bold]2/3 Planning {app_name}[/bold]")
+    plan_result = deploy_mod.prepare_and_plan(cfg, kubeconfig, label="ship")
+    console.print(f"[dim]{plan_result.workdir}[/dim]")
+    _print_plan_warnings(plan_result)
+    console.print(plan_result.output)
+
+    if not plan_result.ok:
+        err_console.print("[red]Plan failed - not applying.[/red]")
+        if not keep:
+            shutil.rmtree(plan_result.workdir, ignore_errors=True)
+        raise typer.Exit(1)
+
+    if not yes:
+        console.print("\n[yellow]Dry run only - re-run with --yes to actually apply and restart.[/yellow]")
+        if not keep:
+            shutil.rmtree(plan_result.workdir, ignore_errors=True)
+        return
+
+    console.print("\n[bold]Applying...[/bold]")
+    applied = deploy_mod.real_apply(plan_result.workdir)
+    console.print(applied.stdout)
+    if applied.returncode != 0:
+        err_console.print(applied.stderr)
+        err_console.print(f"[red]Apply failed. Working directory kept for inspection: {plan_result.workdir}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Applied {app_name}.[/green]")
+
+    if cfg.vps_route is not None:
+        vps_config = vps_routing.VpsRoutingConfig.load()
+        if vps_config is None:
+            console.print(
+                "[yellow]vps_route is set on this app but VPS routing isn't configured (no "
+                "CUBE_MANIFEST_VPS_* env vars or ~/.config/cube-manifest/vps-routing.yaml) - skipping the "
+                "public route sync.[/yellow]"
+            )
+        else:
+            ok, message = vps_routing.sync_route(cfg, vps_config)
+            (console if ok else err_console).print(f"[{'green' if ok else 'red'}]{message}[/{'green' if ok else 'red'}]")
+
+    if not keep:
+        shutil.rmtree(plan_result.workdir, ignore_errors=True)
+
+    if not restart:
+        console.print(
+            "[yellow]--no-restart: apply is live, but existing pods were not rolled - if you pushed a new "
+            "image, they may still be running the old one.[/yellow]"
+        )
+        return
+
+    console.print(f"\n[bold]3/3 Rolling {app_name}[/bold]")
+    restart_result = deploy_mod.restart_and_wait(cfg, kubeconfig)
+    if restart_result.kind is None:
+        console.print(f"[dim]{app_name} is a {cfg.app_type.value} app with no restartable workload - nothing to roll.[/dim]")
+        return
+    console.print(restart_result.output)
+    if not restart_result.ok:
+        err_console.print(f"[red]Rollout restart/status failed for {restart_result.kind}/{app_name}.[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]{app_name} is live and rolled out.[/green]")
 
 
 if __name__ == "__main__":
