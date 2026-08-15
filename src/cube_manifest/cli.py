@@ -20,6 +20,7 @@ from rich.syntax import Syntax
 
 from cube_manifest import build as build_mod
 from cube_manifest import deploy as deploy_mod
+from cube_manifest import vps_routing
 from cube_manifest.config import load_cluster_config, set_cluster_config
 from cube_manifest.generators.dockerfile import generate_dockerfile
 from cube_manifest.generators.terraform.builder import generate_terraform
@@ -335,6 +336,19 @@ def apply_cmd(
         raise typer.Exit(1)
 
     console.print(f"[green]Applied {app_name}.[/green]")
+
+    if cfg.vps_route is not None:
+        vps_config = vps_routing.VpsRoutingConfig.load()
+        if vps_config is None:
+            console.print(
+                "[yellow]vps_route is set on this app but VPS routing isn't configured "
+                "(no CUBE_MANIFEST_VPS_* env vars or ~/.config/cube-manifest/vps-routing.yaml) - "
+                "skipping the public route sync.[/yellow]"
+            )
+        else:
+            ok, message = vps_routing.sync_route(cfg, vps_config)
+            (console if ok else err_console).print(f"[{'green' if ok else 'red'}]{message}[/{'green' if ok else 'red'}]")
+
     if not keep:
         shutil.rmtree(result.workdir, ignore_errors=True)
 
