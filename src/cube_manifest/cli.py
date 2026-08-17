@@ -381,6 +381,7 @@ def ship_cmd(
         "app.yml change has no new image (e.g. a bare replica-count/config edit).",
     ),
     keep: bool = typer.Option(False, "--keep", help="Keep the temporary terraform working directory instead of deleting it."),
+    rollout_timeout: str = typer.Option("90s", "--rollout-timeout", help="kubectl rollout status timeout, forwarded to the restart step."),
 ) -> None:
     """The full 'ship this change for real' sequence in one command: build
     the image and push it, apply the Terraform (only if --yes), then force a
@@ -473,7 +474,7 @@ def ship_cmd(
         return
 
     console.print(f"\n[bold]3/3 Rolling {app_name}[/bold]")
-    restart_result = deploy_mod.restart_and_wait(cfg, kubeconfig)
+    restart_result = deploy_mod.restart_and_wait(cfg, kubeconfig, timeout=rollout_timeout)
     if restart_result.kind is None:
         console.print(f"[dim]{app_name} is a {cfg.app_type.value} app with no restartable workload - nothing to roll.[/dim]")
         return
