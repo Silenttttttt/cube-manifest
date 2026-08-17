@@ -41,6 +41,26 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _parse_build_secrets(values: list[str]) -> dict[str, str]:
+    """`["gh_pat=/path/to/token", ...]` -> `{"gh_pat": "/path/to/token"}` -
+    forwarded to `build_and_push(build_secrets=...)`, which turns each entry
+    into one `docker build --secret id=<id>,src=<path>` flag. Rejected early
+    (rather than passed through to a confusing docker-cli error) if an entry
+    isn't `id=path` shaped, or `path` doesn't exist - both point at a caller
+    mistake worth catching before a build is even attempted."""
+    secrets: dict[str, str] = {}
+    for raw in values:
+        if "=" not in raw:
+            err_console.print(f"[red]--build-secret {raw!r}: expected id=path[/red]")
+            raise typer.Exit(1)
+        sid, _, spath = raw.partition("=")
+        if not Path(spath).is_file():
+            err_console.print(f"[red]--build-secret {raw!r}: no such file: {spath}[/red]")
+            raise typer.Exit(1)
+        secrets[sid] = spath
+    return secrets
+
+
 def _apps_dir(apps_dir: Path | None) -> Path:
     d = apps_dir or (Path.cwd() / "apps")
     if not d.is_dir():
@@ -178,6 +198,13 @@ def build_cmd(
         "(via a disposable per-node Pod) instead of leaving the first pull to whenever this app next "
         "cold-starts. --no-prewarm skips this - the image just sits unpulled until something needs it.",
     ),
+    build_secret: list[str] = typer.Option(
+        [],
+        "--build-secret",
+        help="id=path, repeatable. Forwarded to `docker build --secret id=<id>,src=<path>` for a "
+        "Dockerfile's own `RUN --mount=type=secret,id=<id>` steps - e.g. a git credential for a private "
+        "git+https dependency cloned mid-build. Never written to any image layer.",
+    ),
 ) -> None:
     """Build the real Docker image for one app (cloning `external_repo` first
     if it's set - the source doesn't live under this app's own directory in
@@ -190,6 +217,7 @@ def build_cmd(
     d = _apps_dir(apps_dir)
     path = _resolve_one(d, app_name)
     cfg = _load_or_exit(path)
+    secrets = _parse_build_secrets(build_secret)
 
     if force:
         console.print("[dim]--force: no effect yet (no build-skip optimization exists to bypass).[/dim]")
@@ -202,7 +230,7 @@ def build_cmd(
         )
 
     try:
-        result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm)
+        result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm, build_secrets=secrets)
     except build_mod.BuildError as exc:
         err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -382,6 +410,11 @@ def ship_cmd(
     ),
     keep: bool = typer.Option(False, "--keep", help="Keep the temporary terraform working directory instead of deleting it."),
     rollout_timeout: str = typer.Option("90s", "--rollout-timeout", help="kubectl rollout status timeout, forwarded to the restart step."),
+    build_secret: list[str] = typer.Option(
+        [],
+        "--build-secret",
+        help="id=path, repeatable. Forwarded to the build step - see `build --help`.",
+    ),
 ) -> None:
     """The full 'ship this change for real' sequence in one command: build
     the image and push it, apply the Terraform (only if --yes), then force a
@@ -394,6 +427,7 @@ def ship_cmd(
     path = _resolve_one(d, app_name)
     cfg = _load_or_exit(path)
     _require_terraform()
+    secrets = _parse_build_secrets(build_secret)
 
     console.print(f"[bold]1/3 Building {app_name} -> {build_mod.registry_tag(app_name, 'latest')}[/bold]")
     if cfg.external_repo is not None:
@@ -402,7 +436,7 @@ def ship_cmd(
             f"(path={cfg.external_repo.path or '.'})[/dim]"
         )
     try:
-        build_result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm)
+        build_result = build_mod.build_and_push(cfg, path.parent, push=push, prewarm=prewarm, build_secrets=secrets)
     except build_mod.BuildError as exc:
         err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc

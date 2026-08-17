@@ -305,7 +305,12 @@ class BuildResult:
 
 
 def build_and_push(
-    app: AppConfig, app_dir: Path, *, push: bool = True, prewarm: bool = True
+    app: AppConfig,
+    app_dir: Path,
+    *,
+    push: bool = True,
+    prewarm: bool = True,
+    build_secrets: dict[str, str] | None = None,
 ) -> BuildResult:
     """The real, end-to-end build for one app: rollback-tag (if pushing),
     resolve the real source (cloning `external_repo` first if set), generate
@@ -317,7 +322,19 @@ def build_and_push(
     registry (pulls the old `:latest`, retags it, pushes `:previous`), which
     a caller asking for a local-only build clearly doesn't want either.
     `prewarm` only ever runs after a successful push - there's nothing in
-    the registry yet to warm a node with otherwise."""
+    the registry yet to warm a node with otherwise.
+
+    `build_secrets`: {secret_id: path_on_this_host} - forwarded to `docker
+    build` as one `--secret id=<id>,src=<path>` per entry, for a generated or
+    handwritten Dockerfile's own `RUN --mount=type=secret,id=<id>` steps
+    (e.g. a git credential needed to `pip install`/`npm install` a private
+    git+https dependency inside the build). `path` is read by the local
+    `docker` CLI process itself and streamed to the BuildKit daemon - it does
+    NOT need to already exist inside any build context, and the secret is
+    never written to an image layer (contrast `--build-arg`, whose resolved
+    value is always recoverable from `docker history` since ARG substitution
+    happens before that layer's command is recorded). Empty/None forwards no
+    `--secret` flags at all, same as before this parameter existed."""
     app_name = app.name
     latest_tag = registry_tag(app_name, "latest")
     previous_tag = registry_tag(app_name, "previous")
@@ -348,7 +365,10 @@ def build_and_push(
         dockerfile_text = generate_dockerfile(app, app_dir=source_root)
         context_dir, dockerfile_path = build_context(app, source_root, dockerfile_text, tmp_root)
 
-        built = _run(["docker", "build", "-f", str(dockerfile_path), "-t", latest_tag, str(context_dir)])
+        secret_flags = [f"--secret=id={sid},src={spath}" for sid, spath in (build_secrets or {}).items()]
+        built = _run(
+            ["docker", "build", *secret_flags, "-f", str(dockerfile_path), "-t", latest_tag, str(context_dir)]
+        )
         build_ok = built.returncode == 0
         build_output = built.stdout + built.stderr
 
