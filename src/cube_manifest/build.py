@@ -302,6 +302,47 @@ class BuildResult:
     pushed_latest: bool
     push_output: str
     prewarm_results: list[tuple[str, bool, str]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def _private_git_dependency_warnings(source_root: Path, build_secrets: dict[str, str] | None) -> list[str]:
+    """Real incident, not a hypothetical: a `pip install git+https://...`
+    dependency with no `@<ref>` pin means the layer that installs it never
+    invalidates (Docker's cache is keyed on instruction/file text, not what
+    the remote actually holds), so a stale install can ship forever with no
+    error. And if that layer's credential (a `--build-secret`) is missing or
+    broken, nothing notices until something else finally forces the layer to
+    rebuild - at which point it fails with a plain git auth error days or
+    weeks later, nowhere near whatever actually broke the credential.
+
+    Deliberately narrow: only `requirements.txt` right next to the resolved
+    build source, only lines containing `git+`. Not a hard failure and not
+    exhaustive (pyproject.toml, npm/cargo/go git deps aren't covered) - this
+    exists to make the silent failure mode noisy on the very first build
+    instead of six weeks later, not to be a general dependency linter."""
+    requirements = source_root / "requirements.txt"
+    if not requirements.is_file():
+        return []
+
+    warnings: list[str] = []
+    for line in requirements.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "git+" not in line:
+            continue
+        if not build_secrets:
+            warnings.append(
+                f"requirements.txt has a git+ dependency ({line!r}) but no --build-secret was "
+                "passed. If the pip-install layer is cached this build will report success while "
+                "installing nothing; if it isn't cached, the clone will fail outright."
+            )
+        if "@" not in line.split("git+", 1)[1]:
+            warnings.append(
+                f"requirements.txt has an unpinned git+ dependency ({line!r}) - no @<ref>. "
+                "Docker's build cache is keyed on this file's text, not the remote's real content, "
+                "so this layer can silently keep installing an old version forever. Pin it to a "
+                "commit SHA."
+            )
+    return warnings
 
 
 def build_and_push(
@@ -323,6 +364,12 @@ def build_and_push(
     a caller asking for a local-only build clearly doesn't want either.
     `prewarm` only ever runs after a successful push - there's nothing in
     the registry yet to warm a node with otherwise.
+
+    `BuildResult.warnings`: non-fatal, never blocks the build - see
+    `_private_git_dependency_warnings` for what it currently catches (an
+    unpinned or unauthenticated private `git+` dependency in
+    `requirements.txt`, a real incident where this looked like success
+    while silently installing nothing).
 
     `build_secrets`: {secret_id: path_on_this_host} - forwarded to `docker
     build` as one `--secret id=<id>,src=<path>` per entry, for a generated or
@@ -364,6 +411,7 @@ def build_and_push(
         source_root = resolve_source_root(app, app_dir, clone_root)
         dockerfile_text = generate_dockerfile(app, app_dir=source_root)
         context_dir, dockerfile_path = build_context(app, source_root, dockerfile_text, tmp_root)
+        warnings = _private_git_dependency_warnings(source_root, build_secrets)
 
         secret_flags = [f"--secret=id={sid},src={spath}" for sid, spath in (build_secrets or {}).items()]
         built = _run(
@@ -394,6 +442,7 @@ def build_and_push(
             pushed_latest=pushed_latest,
             prewarm_results=prewarm_results,
             push_output=push_output,
+            warnings=warnings,
         )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

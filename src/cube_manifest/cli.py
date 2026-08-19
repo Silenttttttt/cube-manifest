@@ -245,6 +245,8 @@ def build_cmd(
         err_console.print(f"[red]Build failed: {result.latest_tag}[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Built {result.latest_tag}[/green]")
+    for warning in result.warnings:
+        err_console.print(f"[yellow]Warning: {warning}[/yellow]")
 
     if not push:
         console.print("[yellow]--no-push: built locally only.[/yellow]")
@@ -448,6 +450,8 @@ def ship_cmd(
         err_console.print(f"[red]Build failed: {build_result.latest_tag}[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Built {build_result.latest_tag}[/green]")
+    for warning in build_result.warnings:
+        err_console.print(f"[yellow]Warning: {warning}[/yellow]")
 
     if push:
         if not build_result.pushed_latest:

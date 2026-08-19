@@ -165,6 +165,164 @@ registry_url: "my-registry.example:5000"
 a file nor the env var, `registry_url` defaults to `localhost:5000` - a
 generic default, not any one deployment's real value.
 
+## `app.yml` field reference
+
+The `hello` example above only shows the minimum needed to ship something.
+Everything below is real, schema-validated, and used by apps already
+running on this cluster — but wasn't written down anywhere outside
+`schema/models.py`'s own inline comments until now. If you're reading this
+because you had to go source-diving to find one of these, that's the exact
+gap this section exists to close.
+
+**Ingress** (LAN/internal HTTPS, via whatever ingress controller your
+cluster runs):
+
+```yaml
+ingress:
+  enabled: true
+  host: myapp.internal
+  service_port: 3000        # defaults to 80 if omitted
+```
+
+**NodePort** — exposes the app on a fixed port on every cluster node, not
+just internally. This is also the piece `vps_route` (below) forwards
+public traffic *to*, so anything you want reachable from the public VPS
+route needs this too:
+
+```yaml
+service_type: NodePort
+port: 8081
+node_port: 30081             # pick an unused one - `cube list` / grep existing
+                              # apps/*/app.yml for `node_port:` to see what's taken
+```
+
+**VPS public routing** — registers a real, live path on the public VPS's
+Caddy instance (`cybertechnology.sh`), automatically, on `cube
+build`/`apply`. No manual Caddyfile editing:
+
+```yaml
+vps_route:
+  path_prefix: /myapp        # must match ^/[a-zA-Z0-9/_-]*$
+  host: cybertechnology.sh   # optional - this is already the default
+```
+
+Requires `node_port`/`service_type: NodePort` above (the route resolves as
+public request → VPS Caddy → the VPS's Tailscale link to this cluster's
+host → that NodePort → your Service). It ALSO requires one-time setup this
+schema field alone gives you no hint even exists: either
+`CUBE_MANIFEST_VPS_SSH_HOST`/`_SSH_USER`/`_SSH_PASSWORD` (or
+`_SSH_IDENTITY_FILE`) environment variables, or a
+`~/.config/cube-manifest/vps-routing.yaml` file with the same keys
+lowercased (`ssh_host`, `ssh_user`, `ssh_password`/`ssh_identity_file`,
+optionally `ssh_port`, `caddy_container`, `default_host`,
+`home_tailscale_ip`). Without either, `vps_route` is silently skipped with
+a one-line warning at `build`/`apply` time — it's opt-in infrastructure,
+not something every environment needs. See `vps_routing.py`'s own module
+docstring for the full security reasoning (why this SSHes into the VPS and
+talks to Caddy's admin API rather than templating a Caddyfile by hand).
+
+**Secrets** — values already encrypted with this project's `ENC[...]`
+Fernet scheme, decrypted once at load time straight into a real Kubernetes
+Secret (never written to disk in plaintext):
+
+```yaml
+secrets:
+  POSTGRES_HOST: "ENC[gAAAAABq...]"
+```
+
+A legacy `secrets: [{name: ..., value: ...}]` list shape is still accepted
+and silently normalized into the dict shape above (with a deprecation
+warning) — new apps should use the dict shape directly.
+
+**External repo** — build from a separate git repo instead of a local
+`docker_config.context`:
+
+```yaml
+external_repo:
+  url: "https://github.com/you/your-repo.git"
+  branch: main
+  path: subdir-if-the-app-isnt-at-repo-root   # optional
+  ssh_key_secret: my-deploy-key-secret        # optional, for a private repo
+```
+
+`cube build` shallow-clones fresh on every build (no persistent mirror
+yet — see [What's not built yet](#whats-not-built-yet)).
+
+**Storage** — a PVC, hostPath, or emptyDir volume (exactly one backing per
+entry):
+
+```yaml
+storage:
+  - name: myapp-data
+    size: 1Gi
+    mount_path: /var/lib/myapp
+    get_or_create: true       # reuse an existing PVC with this name instead of erroring if it's already there
+    pvc_name: myapp-data-pvc
+```
+
+**Health checks** — the real canonical shape is **singular** `health_check`
+with full `_seconds`-suffixed field names — this is the one field
+`AppConfig` actually defines (`models.py`'s `HealthCheck`/`Probe`); nothing
+else survives past `compat.py` unchanged:
+
+```yaml
+health_check:
+  liveness:
+    command: ["wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+    initial_delay_seconds: 5
+    period_seconds: 30
+    timeout_seconds: 5
+    failure_threshold: 3
+  readiness:
+    command: ["wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+    initial_delay_seconds: 5
+    period_seconds: 10
+    timeout_seconds: 5
+    failure_threshold: 3
+```
+
+Several already-deployed apps use shapes `schema/compat.py` accepts as
+**legacy** and silently rewrites into the shape above, each with a
+`DeprecationWarning` at load time:
+
+- **plural** `health_checks:` (short field names — `initial_delay`/
+  `period`, no `_seconds`, seen in e.g. `portfolio/app.yml`). Real,
+  currently-live gap worth knowing if you use this shape:
+  `compat.py::normalize_health_check` only actually carries over
+  `initial_delay`/`period` from your input — `timeout_seconds` and
+  `failure_threshold` are silently **hardcoded** to `5`/`3` regardless of
+  what you wrote, for both liveness and readiness. If you need a
+  different timeout or failure threshold, use the canonical singular
+  shape above directly; the plural shape can't express it.
+- `health_check.{readiness,liveness}_probe.exec.command` (seen in some
+  older apps).
+- `docker_config.health_check` (a Docker-native `HEALTHCHECK`-instruction
+  shape used by a handful of apps — `activator`, `jobber`, `paipai`,
+  `paipai-ui`, `paper-trader`, `pod-rebalancer`, `service-discovery` — note
+  this one entirely SUPERSEDES a co-present `health_checks`/`health_check`
+  block rather than merging with it, matching the old
+  `terraform_generator.py` behavior this preserves).
+
+New apps should use the canonical singular `health_check` shape directly
+rather than relying on any of the three normalizations above.
+
+**Also real, schema-validated, but not covered here in depth** —
+`resources` (CPU/memory requests+limits), `rbac`, `scheduling`
+(node/pod affinity, tolerations, anti-affinity), `init_containers`,
+`security_context`, `deployment_strategy` (rolling update
+surge/unavailable). Check `schema/models.py`'s own field-level comments
+for these — they're accurate and current, just not duplicated into prose
+here yet.
+
+**Fields that look real but do nothing** — per `schema/models.py`'s own
+top-of-file docstring, these validate but are never read by any
+generator: `app_name`, `cleanup.*`, `container`,
+`container_security_context`, `expose_service`, `monitoring`, `version`,
+and the top-level `image_pull_policy`/`image_pull_timeout`. If you're
+about to set one of these expecting it to change generated behavior, it
+won't — check `models.py`'s docstring for the current, authoritative list
+before relying on any field this README doesn't otherwise mention.
+
 ## Install
 
 ```bash
@@ -182,9 +340,16 @@ cube list                          # every app under ./apps, type + enabled stat
 cube validate [app...]             # schema-check one, several, or all apps
 cube generate dockerfile <app>     # print (or --out FILE) the generated Dockerfile
 cube generate terraform <app>      # print (or --out FILE) the generated .tf.json
-cube build <app> [--no-push] [--no-prewarm]  # real docker build, tag as :latest, roll the old :latest
+cube build <app> [--no-push] [--no-prewarm] [--build-secret id=path ...]
+                                    # real docker build, tag as :latest, roll the old :latest
                                     # to :previous first, then push (unless --no-push) and prewarm
-                                    # every node's image cache (unless --no-prewarm)
+                                    # every node's image cache (unless --no-prewarm).
+                                    # --build-secret is repeatable, forwarded verbatim as
+                                    # `docker build --secret id=<id>,src=<path>` - use it for anything
+                                    # a Dockerfile's `RUN --mount=type=secret,id=<id>` needs at build
+                                    # time (a private git+https token, for example) without it ever
+                                    # landing in an image layer. See the callout below this table
+                                    # before relying on it for a private dependency.
 cube plan <app>                    # real terraform plan against your cluster - read-only
 cube apply <app> [--yes]           # apply it for real - requires --yes to actually touch anything
 cube ship <app> [--yes] [--no-restart] [--no-push] [--no-prewarm]
@@ -202,6 +367,54 @@ cube ship <app> [--yes] [--no-restart] [--no-push] [--no-prewarm]
 
 All commands take `--apps-dir` to point at wherever your `apps/<name>/app.yml`
 files live.
+
+**A build can report success while installing nothing, if it depends on a
+private `git+https` package.** Found for real: an app's Dockerfile does
+`pip install git+https://github.com/org/private-repo.git@<ref>` using a
+`RUN --mount=type=secret,id=gh_pat` to authenticate, built via `cube build
+<app> --build-secret gh_pat=/path/to/token`. Two independent failure modes
+compound here, and either one alone can hide the other for a long time:
+
+1. **Unpinned `git+https` URL → the pip-install layer never invalidates.**
+   Docker's build cache is keyed on instruction/file text, not what the
+   remote actually contains right now - `git+https://.../repo.git` (no
+   `@sha`) is the same text today and after the remote changes, so a cached
+   layer just gets reused forever and your real fix silently never ships,
+   no error, no warning.
+2. **Missing `--build-secret` → the clone fails, but only once the layer
+   above actually has to run again.** If a build has been living entirely
+   off the cached layer from failure mode 1, the credential can be broken
+   (an expired/deleted token, a build invoked without the flag) with zero
+   symptoms until something else finally forces that layer to rebuild -
+   at which point it fails loudly (`fatal: could not read Username for
+   'https://github.com'`), at exactly the moment you're least expecting a
+   credential problem, not a code problem.
+
+The rule, and it's both halves or neither protects you: **pin every
+private `git+https` dependency to a commit SHA, and always pass
+`--build-secret` for whatever that Dockerfile needs.** Pinning without the
+secret just turns "silently stale" into "loudly broken" sooner (still an
+improvement, but not the fix); the secret without pinning still leaves you
+unable to tell "my fix shipped" from "the cache ate it" on every build
+that doesn't happen to invalidate that layer for an unrelated reason.
+
+`cube build`/`cube ship` now catch both halves automatically and print a
+`Warning:` line for either one (`_private_git_dependency_warnings` in
+`build.py`, scanning the resolved source's `requirements.txt` for a `git+`
+line) - never a hard failure, just noisy on the very first build instead
+of silent for weeks. Deliberately narrow: only `requirements.txt`, only
+`git+` lines - it's there to catch this one real, already-seen failure
+mode early, not to be a general dependency linter.
+
+**A repo that clones fine from your own shell is not proof it's public.**
+A credential helper configured on your host (an `hg api`/`gh`-authenticated
+session, a cached `git credential` entry) can make a private repo clone
+successfully for you while the exact same URL fails inside a `docker
+build`, which runs with none of that — confirmed for real: a repo that
+cloned fine standalone turned out to be private (`gh api repos/<org>/<repo>
+--jq '{private,visibility}'` is the real check), and would have needed
+`--build-secret` all along. Don't infer a repository's visibility from
+whether your own terminal can reach it.
 
 ## Battle-tested
 
