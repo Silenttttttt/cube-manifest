@@ -234,6 +234,31 @@ A legacy `secrets: [{name: ..., value: ...}]` list shape is still accepted
 and silently normalized into the dict shape above (with a deprecation
 warning) — new apps should use the dict shape directly.
 
+**`docker_config`'s three dependency lists mean different, stage-specific
+things — and one of them is currently a no-op for Python apps.** Confirmed
+by reading `generators/dockerfile/languages.py::build_python` directly:
+
+- `build_dependencies` — installed via `apt-get` in the **builder** stage
+  only (alongside `build-essential`, always included). This is what any
+  `build_commands` step can actually rely on being present.
+- `runtime_dependencies` — installed in the **final** stage, alongside
+  `ca-certificates` (always included there unconditionally, regardless of
+  what you list).
+- `system_dependencies` — **not consumed by `build_python` in either
+  stage.** Real, previously-undiscovered bug found via `apps/jobber`: its
+  `build_commands` needed `curl` (to fetch `kubectl`), `curl` was listed
+  under `system_dependencies`, and the very first real `cube build` of
+  this app (it predated the cube-manifest migration) failed with `curl:
+  not found` — the field had silently done nothing since it was written.
+  If your `build_commands` needs an OS package, put it in
+  `build_dependencies`, not `system_dependencies`. (Node's generator does
+  read `system_dependencies`, just narrowly — only to detect the literal
+  string `"nginx"` and switch serving strategy, not to install anything
+  from the list. Other apps in this cluster declare Python
+  `system_dependencies` too — untested whether any of them need those
+  tools at runtime and are silently missing them; audit before assuming
+  they're fine.)
+
 **External repo** — build from a separate git repo instead of a local
 `docker_config.context`:
 
