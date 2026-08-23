@@ -579,6 +579,22 @@ class DeploymentStrategy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["RollingUpdate", "Recreate"] = "RollingUpdate"
     rolling_update: RollingUpdateSpec | None = None
+    # Real incident, 2026-08-22: this generator never set the Deployment's
+    # own progressDeadlineSeconds, so Kubernetes silently used its own
+    # default (600s/10m) - meanwhile the generated terraform's
+    # kubernetes_deployment.timeouts.create/update was a completely
+    # separate, independently hardcoded "5m", with nothing keeping the two
+    # in sync. chat-server's CI deploy step failed on every push with
+    # "Error: Waiting for rollout to start" while the rollout was genuinely
+    # still progressing (image pulls alone observed taking 60-100+s) -
+    # terraform gave up at 5m, well inside k8s's own 10m patience. Exposing
+    # this explicitly, with build_deployment deriving the terraform timeout
+    # FROM this same value (see that function's own comment), means the two
+    # can never independently drift apart like this again - set it once
+    # here if an app's rollout is known to need more time than the default
+    # (a large image, a slow migration, a cold-cache pull), and both the
+    # real k8s behavior and terraform's patience for it move together.
+    progress_deadline_seconds: int | None = None
 
 
 class CleanupConfig(BaseModel):

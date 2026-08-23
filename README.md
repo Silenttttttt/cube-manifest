@@ -331,13 +331,35 @@ Several already-deployed apps use shapes `schema/compat.py` accepts as
 New apps should use the canonical singular `health_check` shape directly
 rather than relying on any of the three normalizations above.
 
+**`deployment_strategy.progress_deadline_seconds`** — how long Kubernetes
+itself is willing to keep waiting on a rollout before considering it
+stalled, AND (as of 2026-08-22) the one value `cube apply`/`cube ship`'s
+own terraform wait-for-rollout timeout is derived from (that value + a
+120s buffer, rounded up to a whole minute). Unset by default, meaning
+Kubernetes' own real default (600s/10m) governs and terraform gets 12m.
+Set this explicitly only if an app's rollout is known to need more time
+than that (a large image, a slow migration, a cold-cache pull) — real
+incident that motivated deriving one from the other rather than leaving
+them as two independent numbers: chat-server's CI deploy step failed on
+every single push with "Error: Waiting for rollout to start" while the
+rollout was genuinely still progressing (image pulls alone observed
+taking 60–100+s) — terraform's OLD hardcoded 5m timeout was giving up
+well inside Kubernetes' own 10m default patience, because nothing kept
+the two in sync.
+
+```yaml
+deployment_strategy:
+  progress_deadline_seconds: 1800   # a 30-minute-patient app gets a 32-minute terraform apply timeout, automatically
+```
+
 **Also real, schema-validated, but not covered here in depth** —
 `resources` (CPU/memory requests+limits), `rbac`, `scheduling`
 (node/pod affinity, tolerations, anti-affinity), `init_containers`,
-`security_context`, `deployment_strategy` (rolling update
-surge/unavailable). Check `schema/models.py`'s own field-level comments
-for these — they're accurate and current, just not duplicated into prose
-here yet.
+`security_context`, `deployment_strategy.rolling_update` (surge/
+unavailable — `progress_deadline_seconds` above is the one field on this
+same object worth its own callout). Check `schema/models.py`'s own
+field-level comments for these — they're accurate and current, just not
+duplicated into prose here yet.
 
 **Fields that look real but do nothing** — per `schema/models.py`'s own
 top-of-file docstring, these validate but are never read by any
