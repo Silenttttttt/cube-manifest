@@ -383,6 +383,29 @@ def build_deployment(app: AppConfig, app_name: str) -> dict[str, Any]:
             "annotations": annotations,
         },
         "spec": spec,
+        # Real incident, 2026-08-23: `build_statefulset` (below) already
+        # disables this, `build_deployment` never did - a real, precedented
+        # inconsistency, not a novel decision. Terraform's OWN internal
+        # wait_for_rollout (default true) watches for a NEW ReplicaSet from
+        # a spec.template diff - but `image-policy-hash` above lives on the
+        # DEPLOYMENT's own top-level metadata.annotations, not
+        # spec.template.metadata.annotations, so changing it never actually
+        # touches the pod template Kubernetes hashes to decide whether to
+        # roll out at all. For a floating `:latest` tag (the image
+        # reference STRING never changes between builds - only the digest
+        # behind it does), spec.template can end up byte-identical build to
+        # build, so terraform's internal wait sits watching for a rollout
+        # that was never going to start - confirmed live: chat-server's CI
+        # failed with "Error: Waiting for rollout to start" for the full
+        # apply timeout on a deploy that had ALREADY succeeded functionally
+        # (imagePullPolicy: Always still repulls the new digest on
+        # whatever pod restart eventually happens). This is genuinely safe
+        # to disable, not a coverage gap: `cube ship` already runs its own
+        # explicit `kubectl rollout restart && kubectl rollout status
+        # --timeout=...` immediately after this apply - that real, separate
+        # step is what actually detects rollout completion reliably, this
+        # internal one was only ever getting in its way.
+        "wait_for_rollout": False,
         "timeouts": {"create": apply_timeout, "update": apply_timeout, "delete": "2m"},
         "lifecycle": {
             "create_before_destroy": True,
