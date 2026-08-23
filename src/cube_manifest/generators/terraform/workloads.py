@@ -358,7 +358,20 @@ def build_deployment(app: AppConfig, app_name: str) -> dict[str, Any]:
             "annotations": annotations,
         },
         "spec": spec,
-        "timeouts": {"create": "5m", "update": "5m", "delete": "2m"},
+        # "update"/"create" matched to Kubernetes' own real default here, not
+        # picked arbitrarily: `progressDeadlineSeconds` defaults to 600s (10m)
+        # when a Deployment doesn't set it explicitly (which this generator
+        # never does) - meaning k8s itself is willing to keep waiting on a
+        # slow-but-legitimate rollout for twice as long as this timeout used
+        # to allow. Real incident: chat-server's CI deploy step failed on
+        # every push with "Error: Waiting for rollout to start" while the
+        # rollout was genuinely still progressing (observed image pulls alone
+        # taking 60-100+s) - terraform gave up at 5m, right around where a
+        # slower pull or real load would still be within k8s's own 10m
+        # patience. Bumping to 10m only makes an apply more patient, never
+        # less correct - a genuinely broken/crash-looping rollout still fails
+        # via kubectl's own progress-deadline-exceeded condition either way.
+        "timeouts": {"create": "10m", "update": "10m", "delete": "2m"},
         "lifecycle": {
             "create_before_destroy": True,
             "ignore_changes": [
